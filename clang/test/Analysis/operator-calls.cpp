@@ -104,28 +104,44 @@ namespace SynthesizedAssignment {
   // synthesized assignment operator being undefined.
   void testNoWarning() {
     B v, u;
-    u = v;
+
+    v.a[0].a = 0;
+    v.a[1].a = 0;
+    v.a[2].a = 0;
+
+    u = v; // expected-warning@99 {{Assigned value is garbage or undefined}}
   }
 
   void testNoWarningMove() {
     B v, u;
-    u = static_cast<B &&>(v);
+
+    v.a[0].a = 0;
+    v.a[1].a = 0;
+    v.a[2].a = 0;
+
+    u = static_cast<B &&>(v); // expected-warning@100 {{Assigned value is garbage or undefined}}
   }
 
   void testConsistency() {
     B v, u;
+    v.x = 0;
+    v.a[0].a = 24;
     v.a[1].a = 47;
     v.a[2].a = 42;
     u = v;
+    clang_analyzer_eval(u.a[0].a == -24); // expected-warning{{TRUE}}
     clang_analyzer_eval(u.a[1].a == -47); // expected-warning{{TRUE}}
     clang_analyzer_eval(u.a[2].a == -42); // expected-warning{{TRUE}}
   }
 
   void testConsistencyMove() {
     B v, u;
+    v.x = 0;
+    v.a[0].a = 24;
     v.a[1].a = 47;
     v.a[2].a = 42;
     u = static_cast<B &&>(v);
+    clang_analyzer_eval(u.a[0].a == 25); // expected-warning{{TRUE}}
     clang_analyzer_eval(u.a[1].a == 48); // expected-warning{{TRUE}}
     clang_analyzer_eval(u.a[2].a == 43); // expected-warning{{TRUE}}
   }

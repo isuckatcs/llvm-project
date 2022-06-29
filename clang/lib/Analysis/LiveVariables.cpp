@@ -72,6 +72,8 @@ bool LiveVariables::LivenessValues::isLive(const VarDecl *D) const {
     bool alive = false;
     for (const BindingDecl *BD : DD->bindings())
       alive |= liveBindings.contains(BD);
+
+    alive |= liveDecls.contains(DD);
     return alive;
   }
   return liveDecls.contains(D);
@@ -371,8 +373,12 @@ void TransferFunctions::VisitDeclRefExpr(DeclRefExpr *DR) {
   const Decl* D = DR->getDecl();
   bool InAssignment = LV.inAssignment[DR];
   if (const auto *BD = dyn_cast<BindingDecl>(D)) {
-    if (!InAssignment)
+    if (!InAssignment) {
+      if (const auto *HV = BD->getHoldingVar())
+        val.liveExprs = LV.ESetFact.add(val.liveExprs, HV->getInit());
+
       val.liveBindings = LV.BSetFact.add(val.liveBindings, BD);
+    }
   } else if (const auto *VD = dyn_cast<VarDecl>(D)) {
     if (!InAssignment && !isAlwaysAlive(VD))
       val.liveDecls = LV.DSetFact.add(val.liveDecls, VD);
@@ -382,8 +388,14 @@ void TransferFunctions::VisitDeclRefExpr(DeclRefExpr *DR) {
 void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
   for (const auto *DI : DS->decls()) {
     if (const auto *DD = dyn_cast<DecompositionDecl>(DI)) {
-      for (const auto *BD : DD->bindings())
+      for (const auto *BD : DD->bindings()) {
+        if (const auto *HV = BD->getHoldingVar())
+          val.liveExprs = LV.ESetFact.remove(val.liveExprs, HV->getInit());
+
         val.liveBindings = LV.BSetFact.remove(val.liveBindings, BD);
+      }
+
+      val.liveDecls = LV.DSetFact.remove(val.liveDecls, DD);
     } else if (const auto *VD = dyn_cast<VarDecl>(DI)) {
       if (!isAlwaysAlive(VD))
         val.liveDecls = LV.DSetFact.remove(val.liveDecls, VD);

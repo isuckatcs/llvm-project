@@ -2893,6 +2893,17 @@ CFGBlock *CFGBuilder::VisitDeclSubExpr(DeclStmt *DS) {
     return Block;
   }
 
+  // Visit the binding initializers before the DS initializer, so they
+  // appear after it in the CFG. The binding initializer will reference the
+  // new object, created after the the decomposition, so it has to appear
+  // later in the CFG.
+  if (const auto *DD = dyn_cast<DecompositionDecl>(VD)) {
+    for (auto BD : llvm::reverse(DD->bindings())) {
+      if (auto *VD = BD->getHoldingVar())
+        Visit(VD->getInit());
+    }
+  }
+
   bool HasTemporaries = false;
 
   // Guard static initializers under a branch.

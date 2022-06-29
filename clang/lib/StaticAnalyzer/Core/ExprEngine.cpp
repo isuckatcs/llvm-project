@@ -2622,9 +2622,8 @@ void ExprEngine::VisitCommonDeclRefExpr(const Expr *Ex, const NamedDecl *D,
       V = state->getLValue(BD->getType(), Idx, Base);
     }
     // Handle binding to tuple-like strcutures
-    else if (BD->getHoldingVar()) {
-      // FIXME: handle tuples
-      return;
+    else if (const auto *HV = BD->getHoldingVar()) {
+      V = state->getSVal(HV->getInit(), LCtx);
     } else
       llvm_unreachable("An unknown case of structured binding encountered!");
 

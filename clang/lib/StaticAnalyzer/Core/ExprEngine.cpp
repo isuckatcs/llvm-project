@@ -2623,7 +2623,17 @@ void ExprEngine::VisitCommonDeclRefExpr(const Expr *Ex, const NamedDecl *D,
     }
     // Handle binding to tuple-like strcutures
     else if (const auto *HV = BD->getHoldingVar()) {
-      V = state->getSVal(HV->getInit(), LCtx);
+      unsigned idx = 0;
+      for (const auto BDI : DD->bindings()) {
+        if (BDI == BD) {
+          V = state->getLValue(BD->getType(), svalBuilder.makeArrayIndex(idx),
+                               Base);
+          break;
+        }
+
+        ++idx;
+      }
+
     } else
       llvm_unreachable("An unknown case of structured binding encountered!");
 

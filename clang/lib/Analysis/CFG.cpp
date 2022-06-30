@@ -2893,17 +2893,6 @@ CFGBlock *CFGBuilder::VisitDeclSubExpr(DeclStmt *DS) {
     return Block;
   }
 
-  // Visit the binding initializers before the DS initializer, so they
-  // appear after it in the CFG. The binding initializer will reference the
-  // new object, created after the the decomposition, so it has to appear
-  // later in the CFG.
-  if (const auto *DD = dyn_cast<DecompositionDecl>(VD)) {
-    for (auto BD : llvm::reverse(DD->bindings())) {
-      if (auto *VD = BD->getHoldingVar())
-        Visit(VD->getInit());
-    }
-  }
-
   bool HasTemporaries = false;
 
   // Guard static initializers under a branch.
@@ -2937,6 +2926,26 @@ CFGBlock *CFGBuilder::VisitDeclSubExpr(DeclStmt *DS) {
 
   autoCreateBlock();
   appendStmt(Block, DS);
+
+  // Visit the binding initializers before the DS initializer, so they
+  // appear after it in the CFG. The binding initializer will reference the
+  // new object, created after the the decomposition, so it has to appear
+  // later in the CFG.
+  if (const auto *DD = dyn_cast<DecompositionDecl>(VD)) {
+    for (auto BD : llvm::reverse(DD->bindings())) {
+      if (auto *VD = BD->getHoldingVar()) {
+        // HACK: If the get<>() function returns by value, we materialize a
+        // temporary expression,
+        //  however we want't to skip that in this case, and handle it
+        //  ourselves.
+        if (const auto *EWC = dyn_cast_or_null<ExprWithCleanups>(VD->getInit()))
+          Visit(
+              cast<MaterializeTemporaryExpr>(EWC->getSubExpr())->getSubExpr());
+        else
+          Visit(VD->getInit());
+      }
+    }
+  }
 
   findConstructionContexts(
       ConstructionContextLayer::create(cfg->getBumpVectorContext(), DS),

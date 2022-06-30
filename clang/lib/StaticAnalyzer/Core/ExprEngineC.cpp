@@ -611,6 +611,38 @@ void ExprEngine::VisitDeclStmt(const DeclStmt *DS, ExplodedNode *Pred,
       SVal InitVal = state->getSVal(InitEx, LC);
 
       assert(DS->isSingleDecl());
+
+      unsigned idx = 0;
+      if (const auto *DD = dyn_cast<DecompositionDecl>(VD)) {
+        for (auto BD : DD->bindings()) {
+          if (!BD->getHoldingVar())
+            break;
+
+          SVal Base = state->getLValue(DD, LC);
+          Base = state->getLValue(BD->getType(),
+                                  svalBuilder.makeArrayIndex(idx++), Base);
+
+          const auto *V = BD->getHoldingVar();
+          auto *Init = V->getInit();
+
+          SVal RetVal = UnknownVal();
+
+          // This check is for whether get<>() returns by value
+          if (const auto *EWC = dyn_cast_or_null<ExprWithCleanups>(Init)) {
+            Init =
+                cast<MaterializeTemporaryExpr>(EWC->getSubExpr())->getSubExpr();
+            RetVal = state->getSVal(Init, LC);
+          }
+          // If the above condition is false, get<>() will return by reference
+          else {
+            RetVal = state->getSVal(Init, LC);
+            RetVal = state->getSVal(RetVal.getAsRegion());
+          }
+
+          state = state->bindLoc(Base, RetVal, LC);
+        }
+      }
+
       if (getObjectUnderConstruction(state, DS, LC)) {
         state = finishObjectConstruction(state, DS, LC);
         // We constructed the object directly in the variable.

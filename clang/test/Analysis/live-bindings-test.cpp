@@ -116,9 +116,7 @@ Mytuple getMytuple();
 
 void deconstruct_tuple_types_warning() {
 
-  // Here the unused warning is not reported, because the call to get<>
-  // references the decomposed structure and reads a value from it.
-  auto [a, b] = getMytuple();
+  auto [a, b] = getMytuple(); // expected-warning{{Value stored to '[a, b]' during its initialization is never read}}
 }
 
 int deconstruct_tuple_types_no_warning() {

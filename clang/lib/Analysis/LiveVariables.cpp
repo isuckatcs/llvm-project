@@ -389,8 +389,18 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
   for (const auto *DI : DS->decls()) {
     if (const auto *DD = dyn_cast<DecompositionDecl>(DI)) {
       for (const auto *BD : DD->bindings()) {
-        if (const auto *HV = BD->getHoldingVar())
-          val.liveExprs = LV.ESetFact.remove(val.liveExprs, HV->getInit());
+
+        // HACK: keep the expr alive, so that we can read the values when the
+        // new object is declared
+        if (const auto *HV = BD->getHoldingVar()) {
+          if (const auto *EWC =
+                  dyn_cast_or_null<ExprWithCleanups>(HV->getInit()))
+            val.liveExprs = LV.ESetFact.add(
+                val.liveExprs, cast<MaterializeTemporaryExpr>(EWC->getSubExpr())
+                                   ->getSubExpr());
+          else
+            val.liveExprs = LV.ESetFact.add(val.liveExprs, HV->getInit());
+        }
 
         val.liveBindings = LV.BSetFact.remove(val.liveBindings, BD);
       }

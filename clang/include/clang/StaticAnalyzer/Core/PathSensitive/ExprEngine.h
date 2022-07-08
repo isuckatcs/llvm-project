@@ -117,6 +117,9 @@ struct EvalCallOptions {
   /// as if copy elision is disabled.
   bool IsElidableCtorThatHasNotBeenElided = false;
 
+  /// This call is a part of an ArrayInitLoopExpr.
+  bool IsArrayInitLoop = false;
+
   EvalCallOptions() {}
 };
 
@@ -616,6 +619,12 @@ public:
                  SVal LHS, SVal RHS, QualType T) {
     return svalBuilder.evalBinOp(ST, Op, LHS, RHS, T);
   }
+
+  /// Returns whether we have an element under construction from the specific
+  /// array.
+  bool hasIndexOfElementToConstruct(ProgramStateRef State,
+                                    const CXXConstructExpr *E,
+                                    const LocationContext *LCtx);
 
   /// Retreives which element is being constructed in a non POD type array.
   static Optional<unsigned>

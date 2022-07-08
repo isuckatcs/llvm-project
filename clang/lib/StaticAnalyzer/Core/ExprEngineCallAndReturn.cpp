@@ -265,9 +265,13 @@ void ExprEngine::processCallExit(ExplodedNode *CEBNode) {
 
       ShouldRepeatCall = shouldRepeatCtorCall(state, CCE, callerCtx);
 
-      if (!ShouldRepeatCall &&
-          getIndexOfElementToConstruct(state, CCE, callerCtx))
-        state = removeIndexOfElementToConstruct(state, CCE, callerCtx);
+      if (!ShouldRepeatCall) {
+        if (getIndexOfElementToConstruct(state, CCE, callerCtx))
+          state = removeIndexOfElementToConstruct(state, CCE, callerCtx);
+
+        if (getPendingInitLoop(state, CCE, callerCtx))
+          state = removePendingInitLoop(state, CCE, callerCtx);
+      }
     }
 
     if (const auto *CNE = dyn_cast<CXXNewExpr>(CE)) {
@@ -809,6 +813,11 @@ ExprEngine::mayInlineCallKind(const CallEvent &Call, const ExplodedNode *Pred,
         !Opts.MayInlineCXXAllocator)
       return CIP_DisallowedOnce;
 
+    // If the call is a part of an ArrayInitLoopExpr, inline it.
+    // FIXME: For now...
+    if (CallOpts.IsArrayInitLoop)
+      return CIP_Allowed;
+
     // FIXME: We don't handle constructors or destructors for arrays properly.
     // Even once we do, we still need to be careful about implicitly-generated
     // initializers for array fields in default move/copy constructors.
@@ -1109,6 +1118,31 @@ bool ExprEngine::shouldRepeatCtorCall(ProgramStateRef State,
   if (const auto *CAT = dyn_cast<ConstantArrayType>(Ty)) {
     unsigned Size = getContext().getConstantArrayElementCount(CAT);
     return Size > getIndexOfElementToConstruct(State, E, LCtx);
+  }
+
+  // Check if E is a part of an ArrayInitLoopExpr. E is a part of the said
+  // expression if, and only if one of it's sub-expressions is an
+  // ArrayInitIndexExpr.
+  //
+  //  -ArrayInitLoopExpr
+  //   |-OpaqueValueExpr
+  //   | `-DeclRefExpr
+  //   `-CXXConstructExpr               <-- we're here
+  //     `-ImplicitCastExpr
+  //       `-ArraySubscriptExpr
+  //         |-ImplicitCastExpr
+  //         | `-OpaqueValueExpr
+  //         |   `-DeclRefExpr
+  //         `-ArrayInitIndexExpr       <-- match this
+  if (E->getNumArgs() == 1) {
+    auto *Arg0 = dyn_cast<ImplicitCastExpr>(E->getArg(0));
+    if (!Arg0)
+      return false;
+
+    const auto ASE = dyn_cast<ArraySubscriptExpr>(Arg0->getSubExpr());
+
+    return ASE && dyn_cast<ArrayInitIndexExpr>(ASE->getRHS()) &&
+           hasIndexOfElementToConstruct(State, E, LCtx);
   }
 
   return false;

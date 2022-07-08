@@ -2931,9 +2931,13 @@ CFGBlock *CFGBuilder::VisitDeclSubExpr(DeclStmt *DS) {
   autoCreateBlock();
   appendStmt(Block, DS);
 
+  // If the initializer is an ArrayInitLoopExpr, we want to extract the
+  // initializer, that's used for each element.
+  const auto *AILE = dyn_cast_or_null<ArrayInitLoopExpr>(Init);
+
   findConstructionContexts(
       ConstructionContextLayer::create(cfg->getBumpVectorContext(), DS),
-      Init);
+      AILE ? AILE->getSubExpr() : Init);
 
   // Keep track of the last non-null block, as 'Block' can be nulled out
   // if the initializer expression is something like a 'while' in a

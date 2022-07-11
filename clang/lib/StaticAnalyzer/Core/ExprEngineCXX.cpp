@@ -462,6 +462,53 @@ ProgramStateRef ExprEngine::updateObjectsUnderConstruction(
   llvm_unreachable("Unhandled construction context!");
 }
 
+static const ArrayInitLoopExpr *
+tryGetArrayInitLoop(const ConstructionContext *CC) {
+  if (const auto *DSCC = dyn_cast_or_null<VariableConstructionContext>(CC)) {
+    const auto *DS = DSCC->getDeclStmt();
+    const auto *Var = cast<VarDecl>(DS->getSingleDecl());
+
+    return dyn_cast_or_null<ArrayInitLoopExpr>(Var->getInit());
+  }
+
+  return nullptr;
+}
+
+static ProgramStateRef
+bindRequiredArrayElementToEnvironment(ProgramStateRef State,
+                                      const CXXConstructExpr *CE,
+                                      const LocationContext *LCtx, SVal Idx) {
+  // The ctor in this case is guaranteed to be a copy ctor, otherwise we hit a
+  // compile time error.
+  //
+  //  -ArrayInitLoopExpr
+  //   |-OpaqueValueExpr
+  //   | `-DeclRefExpr
+  //   `-CXXConstructExpr               <-- we're here
+  //     `-ImplicitCastExpr
+  //       `-ArraySubscriptExpr
+  //         |-ImplicitCastExpr
+  //         | `-OpaqueValueExpr
+  //         |   `-DeclRefExpr          <-- match this
+  //         `-ArrayInitIndexExpr
+  //
+  // HACK: There is no way we can put the index of the array element into the
+  // CFG unless we unroll the loop, so we manually select and bind the required
+  // parameter to the environment.
+
+  auto *Arg0 = cast<ImplicitCastExpr>(CE->getArg(0));
+  const auto ASE = cast<ArraySubscriptExpr>(Arg0->getSubExpr());
+  const auto ICE = cast<ImplicitCastExpr>(ASE->getLHS());
+  const auto OVE = cast<OpaqueValueExpr>(ICE->getSubExpr());
+  const auto DRE = cast<DeclRefExpr>(OVE->getSourceExpr());
+
+  SVal NthElem =
+      State->getLValue(CE->getType(), Idx,
+                       State->getLValue(cast<VarDecl>(DRE->getDecl()), LCtx));
+
+  return State->BindExpr(Arg0, LCtx, NthElem);
+}
+
 void ExprEngine::handleConstructor(const Expr *E,
                                    ExplodedNode *Pred,
                                    ExplodedNodeSet &destNodes) {
@@ -504,61 +551,27 @@ void ExprEngine::handleConstructor(const Expr *E,
 
     // If the ctor is part of an ArrayInitLoopExpr, we want to handle it
     // differently.
-    const ArrayInitLoopExpr *AILE = nullptr;
-    if (const auto *DSCC = dyn_cast_or_null<VariableConstructionContext>(CC)) {
-      const auto *DS = DSCC->getDeclStmt();
-      const auto *Var = cast<VarDecl>(DS->getSingleDecl());
-
-      AILE = dyn_cast_or_null<ArrayInitLoopExpr>(Var->getInit());
-      CallOpts.IsArrayInitLoop = AILE;
-    }
+    auto *AILE = tryGetArrayInitLoop(CC);
 
     unsigned Idx = 0;
-    if (CE->getType()->isArrayType() || CallOpts.IsArrayInitLoop) {
+    if (CE->getType()->isArrayType() || AILE) {
       Idx = getIndexOfElementToConstruct(State, CE, LCtx).getValueOr(0u);
       State = setIndexOfElementToConstruct(State, CE, LCtx, Idx + 1);
     }
 
-    // The ctor is the part of an ArrayInitLoopExpr if and only if it contains
-    // an ArrayInitIndexExpr.
-    //
-    // The ctor in this case is guaranteed to be a copy ctor, otherwise we hit a
-    // compile time error.
-    //
-    //  -ArrayInitLoopExpr
-    //   |-OpaqueValueExpr
-    //   | `-DeclRefExpr
-    //   `-CXXConstructExpr               <-- we're here
-    //     `-ImplicitCastExpr
-    //       `-ArraySubscriptExpr
-    //         |-ImplicitCastExpr
-    //         | `-OpaqueValueExpr
-    //         |   `-DeclRefExpr          <-- match this
-    //         `-ArrayInitIndexExpr
-    //
-    // HACK: There is no way we can put the index of the array element into the
-    // CFG unless we unroll the loop, so we manually override the index here.
-    if (CallOpts.IsArrayInitLoop) {
-      auto *Arg0 = cast<ImplicitCastExpr>(CE->getArg(0));
-      const auto ASE = cast<ArraySubscriptExpr>(Arg0->getSubExpr());
-      const auto ICE = cast<ImplicitCastExpr>(ASE->getLHS());
-      const auto OVE = cast<OpaqueValueExpr>(ICE->getSubExpr());
-      const auto DRE = cast<DeclRefExpr>(OVE->getSourceExpr());
+    if (AILE) {
+      // Only set this once even though we loop through it multiple times.
+      if (!getPendingInitLoop(State, CE, LCtx))
+        State = setPendingInitLoop(State, CE, LCtx,
+                                   AILE->getArraySize().getLimitedValue());
 
-      SVal NthElem = State->getLValue(
-          CE->getType(), svalBuilder.makeArrayIndex(Idx),
-          State->getLValue(cast<VarDecl>(DRE->getDecl()), LCtx));
-      State = State->BindExpr(Arg0, LCtx, NthElem);
+      State = bindRequiredArrayElementToEnvironment(
+          State, CE, LCtx, svalBuilder.makeArrayIndex(Idx));
     }
 
     // The target region is found from construction context.
     std::tie(State, Target) =
         handleConstructionContext(CE, State, LCtx, CC, CallOpts, Idx);
-
-    if (CallOpts.IsArrayInitLoop &&
-        AILE->getArraySize().getLimitedValue() == Idx + 1)
-      State = removeIndexOfElementToConstruct(State, CE, LCtx);
-
     break;
   }
   case CXXConstructExpr::CK_VirtualBase: {

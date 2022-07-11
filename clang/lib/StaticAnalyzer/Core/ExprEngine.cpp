@@ -196,6 +196,14 @@ typedef llvm::ImmutableMap<
     IndexOfElementToConstructMap;
 REGISTER_TRAIT_WITH_PROGRAMSTATE(IndexOfElementToConstruct,
                                  IndexOfElementToConstructMap)
+
+// This trait is responsible for holding our pending ArrayInitLoopExprs.
+// It pairs the LocationContext and the initializer CXXConstructExpr with
+// the size of the array that's being copy initialized.
+typedef llvm::ImmutableMap<
+    std::pair<const CXXConstructExpr *, const LocationContext *>, unsigned>
+    PendingInitLoopMap;
+REGISTER_TRAIT_WITH_PROGRAMSTATE(PendingInitLoop, PendingInitLoopMap)
 //===----------------------------------------------------------------------===//
 // Engine construction and deletion.
 //===----------------------------------------------------------------------===//
@@ -462,10 +470,32 @@ ProgramStateRef ExprEngine::setIndexOfElementToConstruct(
   return State->set<IndexOfElementToConstruct>(Key, Idx);
 }
 
-bool ExprEngine::hasIndexOfElementToConstruct(ProgramStateRef State,
-                                              const CXXConstructExpr *E,
-                                              const LocationContext *LCtx) {
-  return State->contains<IndexOfElementToConstruct>({E, LCtx->getStackFrame()});
+Optional<unsigned> ExprEngine::getPendingInitLoop(ProgramStateRef State,
+                                                  const CXXConstructExpr *E,
+                                                  const LocationContext *LCtx) {
+
+  return Optional<unsigned>::create(
+      State->get<PendingInitLoop>({E, LCtx->getStackFrame()}));
+}
+
+ProgramStateRef ExprEngine::removePendingInitLoop(ProgramStateRef State,
+                                                  const CXXConstructExpr *E,
+                                                  const LocationContext *LCtx) {
+  auto Key = std::make_pair(E, LCtx->getStackFrame());
+
+  assert(E && State->contains<PendingInitLoop>(Key));
+  return State->remove<PendingInitLoop>(Key);
+}
+
+ProgramStateRef ExprEngine::setPendingInitLoop(ProgramStateRef State,
+                                               const CXXConstructExpr *E,
+                                               const LocationContext *LCtx,
+                                               unsigned Size) {
+  auto Key = std::make_pair(E, LCtx->getStackFrame());
+
+  assert(!State->contains<PendingInitLoop>(Key) && Size > 0);
+
+  return State->set<PendingInitLoop>(Key, Size);
 }
 
 Optional<unsigned>
@@ -2804,6 +2834,11 @@ void ExprEngine::VisitArrayInitLoopExpr(const ArrayInitLoopExpr *Ex,
   const Expr *Arr = Ex->getCommonExpr()->getSourceExpr();
 
   for (auto *Node : CheckerPreStmt) {
+
+    // The constructor visitior has already taken care of everything.
+    if (auto *CE = dyn_cast<CXXConstructExpr>(Ex->getSubExpr()))
+      break;
+
     const LocationContext *LCtx = Node->getLocationContext();
     ProgramStateRef state = Node->getState();
 
@@ -2872,76 +2907,6 @@ void ExprEngine::VisitArrayInitLoopExpr(const ArrayInitLoopExpr *Ex,
     if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Arr))
       Base = state->getLValue(cast<VarDecl>(DRE->getDecl()), LCtx);
 
-    // if(auto *CE = dyn_cast<CXXConstructExpr>(Ex->getSubExpr()))
-    // {
-    //   auto vals = getBasicVals().getEmptySValList();
-
-    //   ExplodedNodeSet PostCtor;
-    //   StmtNodeBuilder Bldr2(EvalSet, PostCtor,*currBldrCtx);
-    //   Bldr2.takeNodes(Pred);
-
-    //   Expr* OldRHS = nullptr;
-
-    //   for(int i = 0; i < Ex->getArraySize().getLimitedValue(); ++i)
-    //   {
-    //     SVal NthElement =
-    //     state->getLValue(CE->getType(),svalBuilder.makeArrayIndex(i),Base);
-
-    //     auto *Arg0 = cast<ImplicitCastExpr>(CE->getArg(0));
-    //     auto *SubSE = cast<ArraySubscriptExpr>(Arg0->getSubExpr());
-    //     auto *RHS = SubSE->getRHS();
-
-    //     if(OldRHS == nullptr)
-    //       OldRHS = RHS;
-
-    //     auto *newIdx =
-    //     IntegerLiteral::Create(getContext(),getContext().MakeIntValue(i,RHS->getType()),RHS->getType(),RHS->getExprLoc());
-    //     SubSE->setRHS(newIdx);
-    //     CE->setArg(0,Arg0);
-
-    //     state = state->BindExpr(CE->getArg(0),LCtx,NthElement);
-
-    //     SVal D = loc::MemRegionVal(MRMgr.getCXXTempObjectRegion(CE, LCtx));
-    //     // vals = getBasicVals().prependSVal(D,vals);
-    //     // state = state->BindExpr(Ex, LCtx,D);
-
-    //     Pred = Bldr2.generateNode(Ex, Pred, state);
-    //     handleConstructor(CE,Pred,PostCtor);
-    //     Bldr2.takeNodes(Pred);
-
-    //     if(PostCtor.size() > 0)
-    //     {
-    //       Pred = *PostCtor.begin();
-    //       state = Pred->getState();
-
-    //       auto materialized = getBasicVals().getEmptySValList();
-    //       auto *Ctor = CE->getConstructor();
-    //       for(auto&&I : llvm::reverse(Ctor->inits()))
-    //       {
-    //         if(I->isMemberInitializer())
-    //         {
-    //           SVal V = state->getLValue(I->getMember(),D);
-    //           materialized =
-    //           getBasicVals().prependSVal(state->getSVal(V.getAsRegion()),materialized);
-    //         }
-    //       }
-
-    //       vals =
-    //       getBasicVals().prependSVal(svalBuilder.makeCompoundVal(CE->getType(),
-    //       materialized),vals);
-    //       // Pred = Bldr2.generateNode(Ex, Pred, state);
-    //     }
-    //   }
-
-    //   auto *Arg0 = cast<ImplicitCastExpr>(CE->getArg(0));
-    //   auto *SubSE = cast<ArraySubscriptExpr>(Arg0->getSubExpr());
-    //   SubSE->setRHS(OldRHS);
-
-    //   SVal V = svalBuilder.makeCompoundVal(Ex->getType(), vals);
-    //   Bldr2.generateNode(Ex, Pred, state->BindExpr(Ex,LCtx, V));
-    //   getCheckerManager().runCheckersForPostStmt(Dst, PostCtor, Ex, *this);
-    //   return;
-    // }
     // Create a lazy compound value to the original array
     if (const MemRegion *R = Base.getAsRegion())
       Base = state->getSVal(R);

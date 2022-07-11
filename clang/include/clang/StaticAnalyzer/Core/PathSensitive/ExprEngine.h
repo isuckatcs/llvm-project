@@ -117,9 +117,6 @@ struct EvalCallOptions {
   /// as if copy elision is disabled.
   bool IsElidableCtorThatHasNotBeenElided = false;
 
-  /// This call is a part of an ArrayInitLoopExpr.
-  bool IsArrayInitLoop = false;
-
   EvalCallOptions() {}
 };
 
@@ -620,16 +617,15 @@ public:
     return svalBuilder.evalBinOp(ST, Op, LHS, RHS, T);
   }
 
-  /// Returns whether we have an element under construction from the specific
-  /// array.
-  bool hasIndexOfElementToConstruct(ProgramStateRef State,
-                                    const CXXConstructExpr *E,
-                                    const LocationContext *LCtx);
-
   /// Retreives which element is being constructed in a non POD type array.
   static Optional<unsigned>
   getIndexOfElementToConstruct(ProgramStateRef State, const CXXConstructExpr *E,
                                const LocationContext *LCtx);
+
+  /// Retreives the size of the array in the pending ArrayInitLoopExpr.
+  static Optional<unsigned> getPendingInitLoop(ProgramStateRef State,
+                                               const CXXConstructExpr *E,
+                                               const LocationContext *LCtx);
 
   /// By looking at a certain item that may be potentially part of an object's
   /// ConstructionContext, retrieve such object's location. A particular
@@ -825,7 +821,9 @@ private:
 
   /// Checks whether our policies allow us to inline a non-POD type array
   /// construction.
-  bool shouldInlineArrayConstruction(const ArrayType *Type);
+  bool shouldInlineArrayConstruction(const ProgramStateRef State,
+                                     const CXXConstructExpr *CE,
+                                     const LocationContext *LCtx);
 
   /// Checks whether we construct an array of non-POD type, and decides if the
   /// constructor should be inkoved once again.
@@ -924,6 +922,16 @@ private:
   removeIndexOfElementToConstruct(ProgramStateRef State,
                                   const CXXConstructExpr *E,
                                   const LocationContext *LCtx);
+
+  /// Sets the size of the array in a pending ArrayInitLoopExpr.
+  static ProgramStateRef setPendingInitLoop(ProgramStateRef State,
+                                            const CXXConstructExpr *E,
+                                            const LocationContext *LCtx,
+                                            unsigned Idx);
+
+  static ProgramStateRef removePendingInitLoop(ProgramStateRef State,
+                                               const CXXConstructExpr *E,
+                                               const LocationContext *LCtx);
 
   /// Store the location of a C++ object corresponding to a statement
   /// until the statement is actually encountered. For example, if a DeclStmt

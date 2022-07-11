@@ -293,15 +293,12 @@ void array_big_a(void) {
   clang_analyzer_eval(f == 6); // expected-warning{{UNKNOWN}}
 }
 
-struct S
-{
+struct S {
   int a = 1;
   int b = 2;
 };
 
-
-void non_pod_val(void)
-{
+void non_pod_val(void) {
   S arr[2];
 
   auto [x, y] = arr;
@@ -313,8 +310,7 @@ void non_pod_val(void)
   clang_analyzer_eval(y.b == 2); // expected-warning{{TRUE}}
 }
 
-void non_pod_lref(void)
-{
+void non_pod_lref(void) {
   S arr[2];
 
   auto &[x, y] = arr;
@@ -326,8 +322,7 @@ void non_pod_lref(void)
   clang_analyzer_eval(y.b == 2); // expected-warning{{TRUE}}
 }
 
-void non_pod_rref(void)
-{
+void non_pod_rref(void) {
   S arr[2];
 
   auto &&[x, y] = arr;
@@ -339,22 +334,19 @@ void non_pod_rref(void)
   clang_analyzer_eval(y.b == 2); // expected-warning{{TRUE}}
 }
 
-struct SUD
-{
+struct SUD {
   int a = 1;
   int b = 2;
 
   SUD() = default;
 
-  SUD(const SUD &copy)
-  {
+  SUD(const SUD &copy) {
     a = copy.a + 1;
     b = copy.b + 1;
   }
 };
 
-void non_pod_user_defined_val(void)
-{
+void non_pod_user_defined_val(void) {
   SUD arr[2];
 
   auto [x, y] = arr;

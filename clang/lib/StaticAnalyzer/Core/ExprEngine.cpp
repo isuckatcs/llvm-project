@@ -523,25 +523,22 @@ ExprEngine::addObjectUnderConstruction(ProgramStateRef State,
                                        const LocationContext *LC, SVal V) {
   ConstructedObjectKey Key(Item, LC->getStackFrame());
 
-  const CXXConstructExpr *E = nullptr;
+  const Expr *Init = nullptr;
 
   if (auto DS = dyn_cast_or_null<DeclStmt>(Item.getStmtOrNull())) {
-    if (auto VD = dyn_cast_or_null<VarDecl>(DS->getSingleDecl())) {
-      const auto *Init = VD->getInit();
-
-      // In an ArrayInitLoopExpr the real initializer is returned by
-      // getSubExpr().
-      if (const auto *AILE = dyn_cast<ArrayInitLoopExpr>(Init))
-        Init = AILE->getSubExpr();
-
-      E = dyn_cast<CXXConstructExpr>(Init);
-    }
+    if (auto VD = dyn_cast_or_null<VarDecl>(DS->getSingleDecl()))
+      Init = VD->getInit();
   }
 
-  if (!E && !Item.getStmtOrNull()) {
-    auto CtorInit = Item.getCXXCtorInitializer();
-    E = dyn_cast<CXXConstructExpr>(CtorInit->getInit());
-  }
+  if (!Init && !Item.getStmtOrNull())
+    Init = Item.getCXXCtorInitializer()->getInit();
+
+  // In an ArrayInitLoopExpr the real initializer is returned by
+  // getSubExpr().
+  if (const auto *AILE = dyn_cast_or_null<ArrayInitLoopExpr>(Init))
+    Init = AILE->getSubExpr();
+
+  const auto *E = dyn_cast_or_null<CXXConstructExpr>(Init);
 
   // FIXME: Currently the state might already contain the marker due to
   // incorrect handling of temporaries bound to default parameters.

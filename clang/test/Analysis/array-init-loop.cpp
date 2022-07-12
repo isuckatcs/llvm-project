@@ -125,3 +125,103 @@ void move_ctor_uninit() {
   clang_analyzer_eval(moved.arr[3]); // expected-warning{{UNKNOWN}}
   clang_analyzer_eval(moved.arr[4]); // expected-warning{{UNKNOWN}}
 }
+
+struct S2 {
+  inline static int c = 0;
+  int i;
+
+  S2() : i(++c) {}
+
+  S2(const S2 &copy) {
+    i = copy.i + 1;
+  }
+
+  S2(S2 &&move) {
+    i = move.i + 2;
+  }
+};
+
+void array_init_non_pod() {
+  S2::c = 0;
+  S2 arr[4];
+
+  auto [a, b, c, d] = arr;
+
+  clang_analyzer_eval(a.i == 2); // expected-warning{{TRUE}}
+  clang_analyzer_eval(b.i == 3); // expected-warning{{TRUE}}
+  clang_analyzer_eval(c.i == 4); // expected-warning{{TRUE}}
+  clang_analyzer_eval(d.i == 5); // expected-warning{{TRUE}}
+}
+
+struct S3 {
+  int i;
+};
+
+void array_uninit_non_pod() {
+  S3 arr[1];
+
+  auto [a] = arr;
+  // expected-warning@159{{ in implicit constructor is garbage or undefined }}
+}
+
+void lambda_init_non_pod() {
+  S2::c = 0;
+  S2 arr[4];
+
+  // FIXME: These should be True, but we fail to construct the array in a lambda capture.
+  auto l = [arr] { return arr[0].i; }();
+  clang_analyzer_eval(l == 2); // expected-warning{{TRUE}} expected-warning{{FALSE}}
+
+  l = [arr] { return arr[1].i; }();
+  clang_analyzer_eval(l == 3); // expected-warning{{TRUE}} expected-warning{{FALSE}}
+
+  l = [arr] { return arr[2].i; }();
+  clang_analyzer_eval(l == 4); // expected-warning{{TRUE}} expected-warning{{FALSE}}
+
+  l = [arr] { return arr[3].i; }();
+  clang_analyzer_eval(l == 5); // expected-warning{{TRUE}} expected-warning{{FALSE}}
+}
+
+void lambda_uninit_non_pod() {
+  S3 arr[4];
+
+  // FIXME: These should be Undefined, but we fail to read Undefined from a lazyCompoundVal.
+  int l = [arr] { return arr[0].i; }();
+  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
+
+  l = [arr] { return arr[1].i; }();
+  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
+
+  l = [arr] { return arr[2].i; }();
+  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
+
+  l = [arr] { return arr[3].i; }();
+  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
+}
+
+struct S5 {
+  S2 arr[4];
+};
+
+void copy_ctor_init_non_pod() {
+  S2::c = 0;
+  S5 orig;
+
+  S5 copy = orig;
+  clang_analyzer_eval(copy.arr[0].i == 2); // expected-warning{{TRUE}}
+  clang_analyzer_eval(copy.arr[1].i == 3); // expected-warning{{TRUE}}
+  clang_analyzer_eval(copy.arr[2].i == 4); // expected-warning{{TRUE}}
+  clang_analyzer_eval(copy.arr[3].i == 5); // expected-warning{{TRUE}}
+}
+
+void move_ctor_init_non_pod() {
+  S2::c = 0;
+  S5 orig;
+
+  S5 moved = (S5 &&) orig;
+
+  clang_analyzer_eval(moved.arr[0].i == 3); // expected-warning{{TRUE}}
+  clang_analyzer_eval(moved.arr[1].i == 4); // expected-warning{{TRUE}}
+  clang_analyzer_eval(moved.arr[2].i == 5); // expected-warning{{TRUE}}
+  clang_analyzer_eval(moved.arr[3].i == 6); // expected-warning{{TRUE}}
+}

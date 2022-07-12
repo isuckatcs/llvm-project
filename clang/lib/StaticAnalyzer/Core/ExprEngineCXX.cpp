@@ -471,42 +471,63 @@ tryGetArrayInitLoop(const ConstructionContext *CC) {
     return dyn_cast_or_null<ArrayInitLoopExpr>(Var->getInit());
   }
 
+  if (const auto *CICC =
+          dyn_cast_or_null<ConstructorInitializerConstructionContext>(CC)) {
+    const auto *CtorInit = CICC->getCXXCtorInitializer();
+    return dyn_cast_or_null<ArrayInitLoopExpr>(CtorInit->getInit());
+  }
+
   return nullptr;
 }
 
 static ProgramStateRef
 bindRequiredArrayElementToEnvironment(ProgramStateRef State,
-                                      const CXXConstructExpr *CE,
+                                      const ArrayInitLoopExpr *AILE,
                                       const LocationContext *LCtx, SVal Idx) {
   // The ctor in this case is guaranteed to be a copy ctor, otherwise we hit a
   // compile time error.
   //
-  //  -ArrayInitLoopExpr
+  //  -ArrayInitLoopExpr                <-- we're here
   //   |-OpaqueValueExpr
-  //   | `-DeclRefExpr
-  //   `-CXXConstructExpr               <-- we're here
+  //   | `-DeclRefExpr                  <-- match this
+  //   `-CXXConstructExpr
   //     `-ImplicitCastExpr
   //       `-ArraySubscriptExpr
   //         |-ImplicitCastExpr
   //         | `-OpaqueValueExpr
-  //         |   `-DeclRefExpr          <-- match this
+  //         |   `-DeclRefExpr
   //         `-ArrayInitIndexExpr
+  //
+  // The resulting expression might look like the one below in an implicit
+  // copy/move ctor.
+  //
+  //   ArrayInitLoopExpr                <-- we're here
+  //   |-OpaqueValueExpr
+  //   | `-MemberExpr                   <-- match this
+  //   |   `-DeclRefExpr
+  //   `-CXXConstructExpr
+  //     `-ArraySubscriptExpr
+  //       |-ImplicitCastExpr
+  //       | `-OpaqueValueExpr
+  //       |   `-MemberExpr
+  //       |     `-DeclRefExpr
+  //       `-ArrayInitIndexExpr
   //
   // HACK: There is no way we can put the index of the array element into the
   // CFG unless we unroll the loop, so we manually select and bind the required
   // parameter to the environment.
+  const auto *CE = cast<CXXConstructExpr>(AILE->getSubExpr());
+  const auto *OVESrc = AILE->getCommonExpr()->getSourceExpr();
 
-  auto *Arg0 = cast<ImplicitCastExpr>(CE->getArg(0));
-  const auto ASE = cast<ArraySubscriptExpr>(Arg0->getSubExpr());
-  const auto ICE = cast<ImplicitCastExpr>(ASE->getLHS());
-  const auto OVE = cast<OpaqueValueExpr>(ICE->getSubExpr());
-  const auto DRE = cast<DeclRefExpr>(OVE->getSourceExpr());
+  SVal Base = UnknownVal();
+  if (const auto *ME = dyn_cast<MemberExpr>(OVESrc))
+    Base = State->getSVal(ME, LCtx);
+  else if (const auto *DRE = cast<DeclRefExpr>(OVESrc))
+    Base = State->getLValue(cast<VarDecl>(DRE->getDecl()), LCtx);
 
-  SVal NthElem =
-      State->getLValue(CE->getType(), Idx,
-                       State->getLValue(cast<VarDecl>(DRE->getDecl()), LCtx));
+  SVal NthElem = State->getLValue(CE->getType(), Idx, Base);
 
-  return State->BindExpr(Arg0, LCtx, NthElem);
+  return State->BindExpr(CE->getArg(0), LCtx, NthElem);
 }
 
 void ExprEngine::handleConstructor(const Expr *E,
@@ -566,7 +587,7 @@ void ExprEngine::handleConstructor(const Expr *E,
                                    AILE->getArraySize().getLimitedValue());
 
       State = bindRequiredArrayElementToEnvironment(
-          State, CE, LCtx, svalBuilder.makeArrayIndex(Idx));
+          State, AILE, LCtx, svalBuilder.makeArrayIndex(Idx));
     }
 
     // The target region is found from construction context.

@@ -161,7 +161,7 @@ void array_uninit_non_pod() {
   S3 arr[1];
 
   auto [a] = arr;
-  // expected-warning@159{{ in implicit constructor is garbage or undefined }}
+  // expected-warning@156{{ in implicit constructor is garbage or undefined }}
 }
 
 void lambda_init_non_pod() {

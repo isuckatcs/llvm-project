@@ -462,24 +462,6 @@ ProgramStateRef ExprEngine::updateObjectsUnderConstruction(
   llvm_unreachable("Unhandled construction context!");
 }
 
-static const ArrayInitLoopExpr *
-tryGetArrayInitLoop(const ConstructionContext *CC) {
-  if (const auto *DSCC = dyn_cast_or_null<VariableConstructionContext>(CC)) {
-    const auto *DS = DSCC->getDeclStmt();
-    const auto *Var = cast<VarDecl>(DS->getSingleDecl());
-
-    return dyn_cast_or_null<ArrayInitLoopExpr>(Var->getInit());
-  }
-
-  if (const auto *CICC =
-          dyn_cast_or_null<ConstructorInitializerConstructionContext>(CC)) {
-    const auto *CtorInit = CICC->getCXXCtorInitializer();
-    return dyn_cast_or_null<ArrayInitLoopExpr>(CtorInit->getInit());
-  }
-
-  return nullptr;
-}
-
 static ProgramStateRef
 bindRequiredArrayElementToEnvironment(ProgramStateRef State,
                                       const ArrayInitLoopExpr *AILE,
@@ -572,7 +554,7 @@ void ExprEngine::handleConstructor(const Expr *E,
 
     // If the ctor is part of an ArrayInitLoopExpr, we want to handle it
     // differently.
-    auto *AILE = tryGetArrayInitLoop(CC);
+    auto *AILE = CC ? CC->getArrayInitLoop() : nullptr;
 
     unsigned Idx = 0;
     if (CE->getType()->isArrayType() || AILE) {

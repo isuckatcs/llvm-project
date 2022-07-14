@@ -356,7 +356,15 @@ SVal ExprEngine::computeObjectUnderConstruction(
   // If we couldn't find an existing region to construct into, assume we're
   // constructing a temporary. Notify the caller of our failure.
   CallOpts.IsCtorOrDtorWithImproperlyModeledTargetRegion = true;
-  return loc::MemRegionVal(MRMgr.getCXXTempObjectRegion(E, LCtx));
+
+  SVal Base = loc::MemRegionVal(MRMgr.getCXXTempObjectRegion(E, LCtx));
+  if(getPendingInitLoop(State,dyn_cast<CXXConstructExpr>(E),LCtx))
+  {
+    auto Ty = E->getType();
+    Base = State->getLValue(Ty, SVB.makeArrayIndex(Idx), Base);
+    CallOpts.IsArrayCtorOrDtor = true;
+  }
+  return Base;
 }
 
 ProgramStateRef ExprEngine::updateObjectsUnderConstruction(
@@ -462,6 +470,29 @@ ProgramStateRef ExprEngine::updateObjectsUnderConstruction(
   llvm_unreachable("Unhandled construction context!");
 }
 
+static ArrayInitLoopExpr* tryExtractArrayInitLoopExpr(const CXXConstructExpr *CE){
+  //   `-CXXConstructExpr
+  //     `-ImplicitCastExpr
+  //       `-ArraySubscriptExpr
+  //         |-...
+  //         `-ArrayInitIndexExpr   <-- match this
+
+  if(CE->getNumArgs() == 0)
+    return nullptr;
+  
+  const auto* ICE = dyn_cast_or_null<ImplicitCastExpr>(CE->getArg(0));
+  if(!ICE)
+    return nullptr;
+
+  const auto* ASE = dyn_cast_or_null<ArraySubscriptExpr>(ICE->getSubExpr());
+  if(!ASE)
+    return nullptr;
+
+  const auto* AIIE = dyn_cast_or_null<ArrayInitIndexExpr>(ASE->getRHS());
+
+  return AIIE ? AIIE->getParentLoopExpr() : nullptr;
+}
+
 static ProgramStateRef
 bindRequiredArrayElementToEnvironment(ProgramStateRef State,
                                       const ArrayInitLoopExpr *AILE,
@@ -554,7 +585,8 @@ void ExprEngine::handleConstructor(const Expr *E,
 
     // If the ctor is part of an ArrayInitLoopExpr, we want to handle it
     // differently.
-    auto *AILE = CC ? CC->getArrayInitLoop() : nullptr;
+    // auto *AILE = CC ? CC->getArrayInitLoop() : nullptr;
+    auto *AILE = tryExtractArrayInitLoopExpr(CE);
 
     unsigned Idx = 0;
     if (CE->getType()->isArrayType() || AILE) {
@@ -567,6 +599,12 @@ void ExprEngine::handleConstructor(const Expr *E,
       if (!getPendingInitLoop(State, CE, LCtx))
         State = setPendingInitLoop(State, CE, LCtx,
                                    AILE->getArraySize().getLimitedValue());
+
+      if(!CC && Idx > 0)
+      {
+        SVal Base = loc::MemRegionVal(MRMgr.getCXXTempObjectRegion(E, LCtx));
+        State = State->bindLoc(Base ,State->getSVal(CE,LCtx), LCtx);
+      }
 
       State = bindRequiredArrayElementToEnvironment(
           State, AILE, LCtx, svalBuilder.makeArrayIndex(Idx));
@@ -1112,6 +1150,10 @@ void ExprEngine::VisitLambdaExpr(const LambdaExpr *LE, ExplodedNode *Pred,
     SVal InitVal;
     if (!FieldForCapture->hasCapturedVLAType()) {
       Expr *InitExpr = *i;
+
+      if(const auto AILE = dyn_cast_or_null<ArrayInitLoopExpr>(InitExpr))
+        InitExpr = AILE->getSubExpr();
+
       assert(InitExpr && "Capture missing initialization expression");
       InitVal = State->getSVal(InitExpr, LocCtxt);
     } else {

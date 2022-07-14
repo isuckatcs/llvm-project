@@ -8128,6 +8128,7 @@ ExprResult InitializationSequence::Perform(Sema &S,
 
   ExprResult CurInit((Expr *)nullptr);
   SmallVector<Expr*, 4> ArrayLoopCommonExprs;
+  SmallVector<ArrayInitIndexExpr*, 4> ArrayInitIndexExprs;
 
   // For initialization steps that start with a single initializer,
   // grab the only argument out the Args and place it into the "current"
@@ -8678,20 +8679,23 @@ ExprResult InitializationSequence::Perform(Sema &S,
       Expr *BaseExpr = new (S.Context)
           OpaqueValueExpr(Cur->getExprLoc(), Cur->getType(),
                           Cur->getValueKind(), Cur->getObjectKind(), Cur);
-      Expr *IndexExpr =
+      ArrayInitIndexExpr *IndexExpr =
           new (S.Context) ArrayInitIndexExpr(S.Context.getSizeType());
       CurInit = S.CreateBuiltinArraySubscriptExpr(
           BaseExpr, Kind.getLocation(), IndexExpr, Kind.getLocation());
       ArrayLoopCommonExprs.push_back(BaseExpr);
+      ArrayInitIndexExprs.push_back(IndexExpr);
       break;
     }
 
     case SK_ArrayLoopInit: {
-      assert(!ArrayLoopCommonExprs.empty() &&
+      assert(!ArrayLoopCommonExprs.empty() && !ArrayInitIndexExprs.empty() &&
              "mismatched SK_ArrayLoopIndex and SK_ArrayLoopInit");
       Expr *Common = ArrayLoopCommonExprs.pop_back_val();
       CurInit = new (S.Context) ArrayInitLoopExpr(Step->Type, Common,
                                                   CurInit.get());
+      ArrayInitIndexExpr* InitIndex = ArrayInitIndexExprs.pop_back_val();
+      InitIndex->setParentLoopExpr(cast<ArrayInitLoopExpr>(CurInit.get()));
       break;
     }
 

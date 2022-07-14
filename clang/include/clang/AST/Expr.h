@@ -5472,6 +5472,8 @@ public:
 /// initialized by an ArrayInitLoopExpr. This can only appear within the
 /// subexpression of an ArrayInitLoopExpr.
 class ArrayInitIndexExpr : public Expr {
+  ArrayInitLoopExpr *ParentLoopExpr = nullptr;
+
   explicit ArrayInitIndexExpr(EmptyShell Empty)
       : Expr(ArrayInitIndexExprClass, Empty) {}
 
@@ -5484,6 +5486,14 @@ public:
   static bool classof(const Stmt *S) {
     return S->getStmtClass() == ArrayInitIndexExprClass;
   }
+
+  void setParentLoopExpr(ArrayInitLoopExpr *E) {
+    assert(!ParentLoopExpr && "The parent loop expr can only be set once!");
+    
+    ParentLoopExpr = E;
+  }
+
+  ArrayInitLoopExpr *getParentLoopExpr() const {return ParentLoopExpr;}
 
   SourceLocation getBeginLoc() const LLVM_READONLY { return SourceLocation(); }
   SourceLocation getEndLoc() const LLVM_READONLY { return SourceLocation(); }

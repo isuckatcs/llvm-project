@@ -265,6 +265,22 @@ void TransferFunctions::Visit(Stmt *S) {
       val.liveExprs = LV.ESetFact.add(val.liveExprs, child);
       return;
     }
+    case Stmt::LambdaExprClass: {
+      // If the initializer is an ArrayInitLoopExpr, the real initializer is it's subExpr.
+      for (Stmt *Child : S->children()) {
+        if (const auto *E = dyn_cast_or_null<Expr>(Child))
+        {
+          if(const auto *AILE = dyn_cast<ArrayInitLoopExpr>(E))
+            AddLiveExpr(val.liveExprs, LV.ESetFact, AILE->getSubExpr());
+        }
+      }
+      break;
+    }
+
+    case Stmt::CXXConstructExprClass: {
+      AddLiveExpr(val.liveExprs, LV.ESetFact, cast<CXXConstructExpr>(S));
+      break;
+    }
 
     // FIXME: These cases eventually shouldn't be needed.
     case Stmt::ExprWithCleanupsClass: {

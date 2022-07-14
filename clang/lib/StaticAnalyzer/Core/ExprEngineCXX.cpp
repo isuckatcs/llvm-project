@@ -290,6 +290,33 @@ SVal ExprEngine::computeObjectUnderConstruction(
 
       return loc::MemRegionVal(MRMgr.getCXXTempObjectRegion(E, LCtx));
     }
+    case ConstructionContext::LambdaKind: {
+      CallOpts.IsTemporaryCtorOrDtor = true;
+
+      const auto *LCC = cast<LambdaConstructionContext>(CC);
+
+      const auto *LE = LCC->getLambdaExpr();
+
+      // Get the region of the lambda itself.
+      const MemRegion *R =
+          svalBuilder.getRegionManager().getCXXTempObjectRegion(LE, LCtx);
+      SVal V = loc::MemRegionVal(R);
+
+      const FieldDecl *FieldForCapture;
+      const Expr *FieldInitializer;
+      std::tie(FieldForCapture, FieldInitializer) =
+          LCC->getCaptureFieldAndInitializer();
+
+      SVal Base = State->getLValue(FieldForCapture, V);
+      if (getIndexOfElementToConstruct(
+              State, dyn_cast_or_null<CXXConstructExpr>(E), LCtx)) {
+        CallOpts.IsArrayCtorOrDtor = true;
+        Base = State->getLValue(E->getType(), svalBuilder.makeArrayIndex(Idx),
+                                Base);
+      }
+
+      return Base;
+    }
     case ConstructionContext::ArgumentKind: {
       // Arguments are technically temporaries.
       CallOpts.IsTemporaryCtorOrDtor = true;
@@ -449,6 +476,20 @@ ProgramStateRef ExprEngine::updateObjectsUnderConstruction(
         State = addObjectUnderConstruction(State, MTE, LCtx, V);
 
       return State;
+    }
+    case ConstructionContext::LambdaKind: {
+      const auto *LCC = cast<LambdaConstructionContext>(CC);
+
+      const FieldDecl *FieldForCapture;
+      const Expr *FieldInitializer;
+      std::tie(FieldForCapture, FieldInitializer) =
+          LCC->getCaptureFieldAndInitializer();
+
+      if (const auto *AILE = dyn_cast<ArrayInitLoopExpr>(FieldInitializer))
+        FieldInitializer = AILE->getSubExpr();
+
+      return addObjectUnderConstruction(
+          State, {LCC->getLambdaExpr(), LCC->getIndex()}, LCtx, V);
     }
     case ConstructionContext::ArgumentKind: {
       const auto *ACC = cast<ArgumentConstructionContext>(CC);
@@ -1102,6 +1143,7 @@ void ExprEngine::VisitLambdaExpr(const LambdaExpr *LE, ExplodedNode *Pred,
 
   // If we created a new MemRegion for the lambda, we should explicitly bind
   // the captures.
+  unsigned Idx = 0;
   CXXRecordDecl::field_iterator CurField = LE->getLambdaClass()->field_begin();
   for (LambdaExpr::const_capture_init_iterator i = LE->capture_init_begin(),
                                                e = LE->capture_init_end();
@@ -1112,6 +1154,20 @@ void ExprEngine::VisitLambdaExpr(const LambdaExpr *LE, ExplodedNode *Pred,
     SVal InitVal;
     if (!FieldForCapture->hasCapturedVLAType()) {
       Expr *InitExpr = *i;
+
+      if (const auto AILE = dyn_cast<ArrayInitLoopExpr>(InitExpr)) {
+        // If the AILE initializes a non-POD array, we need to keep it as the
+        // InitExpr.
+        if (dyn_cast<CXXConstructExpr>(AILE->getSubExpr()))
+          InitExpr = AILE->getSubExpr();
+      }
+
+      if (dyn_cast<CXXConstructExpr>(InitExpr)) {
+        State = finishObjectConstruction(State, {LE, Idx}, LocCtxt);
+        ++Idx;
+        continue;
+      }
+
       assert(InitExpr && "Capture missing initialization expression");
       InitVal = State->getSVal(InitExpr, LocCtxt);
     } else {
@@ -1122,6 +1178,7 @@ void ExprEngine::VisitLambdaExpr(const LambdaExpr *LE, ExplodedNode *Pred,
       InitVal = State->getSVal(SizeExpr, LocCtxt);
     }
 
+    ++Idx;
     State = State->bindLoc(FieldLoc, InitVal, LocCtxt);
   }
 

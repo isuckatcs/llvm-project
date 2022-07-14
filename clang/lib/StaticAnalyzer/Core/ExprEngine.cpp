@@ -533,6 +533,19 @@ ExprEngine::addObjectUnderConstruction(ProgramStateRef State,
   if (!Init && !Item.getStmtOrNull())
     Init = Item.getCXXCtorInitializer()->getInit();
 
+  if (Item.getKind() == ConstructionContextItem::LambdaKind) {
+    const auto *LE = cast<LambdaExpr>(Item.getStmt());
+    unsigned Idx = Item.getIndex();
+
+    for (auto &&I : LE->capture_inits()) {
+      if (Idx == 0) {
+        Init = I;
+        break;
+      }
+      --Idx;
+    }
+  }
+
   // In an ArrayInitLoopExpr the real initializer is returned by
   // getSubExpr().
   if (const auto *AILE = dyn_cast_or_null<ArrayInitLoopExpr>(Init))

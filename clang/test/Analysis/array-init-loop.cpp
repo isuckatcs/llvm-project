@@ -158,45 +158,34 @@ struct S3 {
 };
 
 void array_uninit_non_pod() {
-  S3 arr[1];
+  // FIXME: core.uninitialized.Assign in an implicit copy ctor is reported only once,
+  //  we prefer to catch it in lambda_uninit_non_pod()
+  //  S3 arr[1];
 
-  auto [a] = arr;
-  // expected-warning@156{{ in implicit constructor is garbage or undefined }}
+  // auto [a] = arr;
 }
 
 void lambda_init_non_pod() {
   S2::c = 0;
   S2 arr[4];
 
-  // FIXME: These should be True, but we fail to construct the array in a lambda capture.
   auto l = [arr] { return arr[0].i; }();
-  clang_analyzer_eval(l == 2); // expected-warning{{TRUE}} expected-warning{{FALSE}}
+  clang_analyzer_eval(l == 2); // expected-warning{{TRUE}}
 
   l = [arr] { return arr[1].i; }();
-  clang_analyzer_eval(l == 3); // expected-warning{{TRUE}} expected-warning{{FALSE}}
+  clang_analyzer_eval(l == 3); // expected-warning{{TRUE}}
 
   l = [arr] { return arr[2].i; }();
-  clang_analyzer_eval(l == 4); // expected-warning{{TRUE}} expected-warning{{FALSE}}
+  clang_analyzer_eval(l == 4); // expected-warning{{TRUE}}
 
   l = [arr] { return arr[3].i; }();
-  clang_analyzer_eval(l == 5); // expected-warning{{TRUE}} expected-warning{{FALSE}}
+  clang_analyzer_eval(l == 5); // expected-warning{{TRUE}}
 }
 
 void lambda_uninit_non_pod() {
   S3 arr[4];
 
-  // FIXME: These should be Undefined, but we fail to read Undefined from a lazyCompoundVal.
-  int l = [arr] { return arr[0].i; }();
-  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
-
-  l = [arr] { return arr[1].i; }();
-  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
-
-  l = [arr] { return arr[2].i; }();
-  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
-
-  l = [arr] { return arr[3].i; }();
-  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
+  int l = [arr] { return arr[3].i; }(); // expected-warning@156{{ in implicit constructor is garbage or undefined }}
 }
 
 struct S5 {

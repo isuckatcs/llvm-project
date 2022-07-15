@@ -156,10 +156,11 @@ const ConstructionContext *ConstructionContext::createBoundTemporaryFromLayers(
     return create<CXX17ElidedCopyConstructorInitializerConstructionContext>(
         C, I, BTE);
   }
-  case ConstructionContextItem::LambdaKind: {
+  case ConstructionContextItem::LambdaCaptureKind: {
     assert(ParentLayer->isLast());
     const auto *E = cast<LambdaExpr>(ParentItem.getStmt());
-    return create<LambdaConstructionContext>(C, E, ParentItem.getIndex());
+    return create<LambdaCaptureConstructionContext>(C, E,
+                                                    ParentItem.getIndex());
   }
   } // switch (ParentItem.getKind())
 
@@ -205,10 +206,10 @@ const ConstructionContext *ConstructionContext::createFromLayers(
   case ConstructionContextItem::ElidableConstructorKind: {
     llvm_unreachable("The argument needs to be materialized first!");
   }
-  case ConstructionContextItem::LambdaKind: {
+  case ConstructionContextItem::LambdaCaptureKind: {
     assert(TopLayer->isLast());
     const auto *E = cast<LambdaExpr>(TopItem.getStmt());
-    return create<LambdaConstructionContext>(C, E, TopItem.getIndex());
+    return create<LambdaCaptureConstructionContext>(C, E, TopItem.getIndex());
   }
   case ConstructionContextItem::InitializerKind: {
     assert(TopLayer->isLast());

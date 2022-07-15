@@ -5636,8 +5636,8 @@ static void print_construction_context(raw_ostream &OS,
     Stmts.push_back(TOCC->getConstructorAfterElision());
     break;
   }
-  case ConstructionContext::LambdaKind: {
-    const auto *LCC = cast<LambdaConstructionContext>(CC);
+  case ConstructionContext::LambdaCaptureKind: {
+    const auto *LCC = cast<LambdaCaptureConstructionContext>(CC);
     Helper.handledStmt(const_cast<LambdaExpr *>(LCC->getLambdaExpr()), OS);
     OS << "+" << LCC->getIndex();
     return;

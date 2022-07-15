@@ -203,7 +203,7 @@ public:
                  isa<VariableConstructionContext>(C) ||
                  isa<ConstructorInitializerConstructionContext>(C) ||
                  isa<ArgumentConstructionContext>(C)) ||
-           isa<LambdaConstructionContext>(C));
+           isa<LambdaCaptureConstructionContext>(C));
     Data2.setPointer(const_cast<ConstructionContext *>(C));
   }
 

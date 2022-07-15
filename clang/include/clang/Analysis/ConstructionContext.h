@@ -36,11 +36,11 @@ public:
     ElidedDestructorKind,
     ElidableConstructorKind,
     ArgumentKind,
-    LambdaKind,
+    LambdaCaptureKind,
     STATEMENT_WITH_INDEX_KIND_BEGIN = ArgumentKind,
-    STATEMENT_WITH_INDEX_KIND_END = LambdaKind,
+    STATEMENT_WITH_INDEX_KIND_END = LambdaCaptureKind,
     STATEMENT_KIND_BEGIN = VariableKind,
-    STATEMENT_KIND_END = LambdaKind,
+    STATEMENT_KIND_END = LambdaCaptureKind,
     InitializerKind,
     INITIALIZER_KIND_BEGIN = InitializerKind,
     INITIALIZER_KIND_END = InitializerKind
@@ -56,7 +56,7 @@ public:
       case ElidedDestructorKind:    return "elide destructor";
       case ElidableConstructorKind: return "elide constructor";
       case ArgumentKind:            return "construct into argument";
-      case LambdaKind:
+      case LambdaCaptureKind:
         return "construct into lambda captured variable";
       case InitializerKind:         return "construct into member variable";
     };
@@ -131,7 +131,7 @@ public:
       : Data(Init), Kind(InitializerKind), Index(0) {}
 
   ConstructionContextItem(const LambdaExpr *LE, unsigned Index)
-      : Data(LE), Kind(LambdaKind), Index(Index) {}
+      : Data(LE), Kind(LambdaCaptureKind), Index(Index) {}
 
   ItemKind getKind() const { return Kind; }
 
@@ -261,7 +261,7 @@ public:
     RETURNED_VALUE_BEGIN = SimpleReturnedValueKind,
     RETURNED_VALUE_END = CXX17ElidedCopyReturnedValueKind,
     ArgumentKind,
-    LambdaKind
+    LambdaCaptureKind
   };
 
 protected:
@@ -681,7 +681,7 @@ public:
   }
 };
 
-class LambdaConstructionContext : public ConstructionContext {
+class LambdaCaptureConstructionContext : public ConstructionContext {
   // The lambda of which the initializer we capture.
   const LambdaExpr *LE;
 
@@ -690,35 +690,30 @@ class LambdaConstructionContext : public ConstructionContext {
 
   friend class ConstructionContext; // Allows to create<>() itself.
 
-  explicit LambdaConstructionContext(const LambdaExpr *LE, unsigned Index)
-      : ConstructionContext(LambdaKind), LE(LE), Index(Index) {}
+  explicit LambdaCaptureConstructionContext(const LambdaExpr *LE,
+                                            unsigned Index)
+      : ConstructionContext(LambdaCaptureKind), LE(LE), Index(Index) {}
 
 public:
   const LambdaExpr *getLambdaExpr() const { return LE; }
   unsigned getIndex() const { return Index; }
 
-  std::pair<const FieldDecl *, const Expr *>
-  getCaptureFieldAndInitializer() const {
-    unsigned Idx = 0;
-    CXXRecordDecl::field_iterator CurField =
-        LE->getLambdaClass()->field_begin();
-    for (LambdaExpr::const_capture_init_iterator i = LE->capture_init_begin(),
-                                                 e = LE->capture_init_end();
-         i != e; ++i, ++CurField, ++Idx) {
-      if (Idx == Index)
-        return {*CurField, *i};
-    }
+  const Expr *getInitializer() const {
+    return *(LE->capture_init_begin() + Index);
+  }
 
-    llvm_unreachable("Lambda capture field not found!");
+  const FieldDecl *getFieldDecl() const {
+    auto It = LE->getLambdaClass()->field_begin();
+    std::advance(It, Index);
+    return *It;
   }
 
   const ArrayInitLoopExpr *getArrayInitLoop() const override {
-    return dyn_cast_or_null<ArrayInitLoopExpr>(
-        getCaptureFieldAndInitializer().second);
+    return dyn_cast_or_null<ArrayInitLoopExpr>(getInitializer());
   }
 
   static bool classof(const ConstructionContext *CC) {
-    return CC->getKind() == LambdaKind;
+    return CC->getKind() == LambdaCaptureKind;
   }
 };
 

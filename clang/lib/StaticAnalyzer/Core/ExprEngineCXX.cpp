@@ -514,7 +514,8 @@ bindRequiredArrayElementToEnvironment(ProgramStateRef State,
   //   ArrayInitLoopExpr                <-- we're here
   //   |-OpaqueValueExpr
   //   | `-MemberExpr                   <-- match this
-  //   |   `-DeclRefExpr
+  //   |  (`-CXXStaticCastExpr)         <-- move ctor only
+  //   |     `-DeclRefExpr
   //   `-CXXConstructExpr
   //     `-ArraySubscriptExpr
   //       |-ImplicitCastExpr
@@ -534,6 +535,8 @@ bindRequiredArrayElementToEnvironment(ProgramStateRef State,
     Base = State->getSVal(ME, LCtx);
   else if (const auto *DRE = cast<DeclRefExpr>(OVESrc))
     Base = State->getLValue(cast<VarDecl>(DRE->getDecl()), LCtx);
+  else
+    llvm_unreachable("ArrayInitLoopExpr contains unexpected source expression");
 
   SVal NthElem = State->getLValue(CE->getType(), Idx, Base);
 

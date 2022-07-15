@@ -126,6 +126,9 @@ void move_ctor_uninit() {
   clang_analyzer_eval(moved.arr[4]); // expected-warning{{UNKNOWN}}
 }
 
+// The struct has a user defined copy and move ctor, which allow us to
+// track the values more precisely when an array of this struct is being
+// copy/move initialized by ArrayInitLoopExpr.
 struct S2 {
   inline static int c = 0;
   int i;
@@ -185,9 +188,12 @@ void lambda_init_non_pod() {
 void lambda_uninit_non_pod() {
   S3 arr[4];
 
-  int l = [arr] { return arr[3].i; }(); // expected-warning@156{{ in implicit constructor is garbage or undefined }}
+  int l = [arr] { return arr[3].i; }(); // expected-warning@159{{ in implicit constructor is garbage or undefined }}
 }
 
+// If this struct is being copy/move constructed by the implicit ctors, ArrayInitLoopExpr
+// is responsible for the initialization of 'arr' by copy/move constructing each of the
+// elements.
 struct S5 {
   S2 arr[4];
 };

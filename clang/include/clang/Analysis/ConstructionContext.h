@@ -329,7 +329,7 @@ public:
   const ArrayInitLoopExpr *getArrayInitLoop() const override {
     const auto *Var = cast<VarDecl>(DS->getSingleDecl());
 
-    return dyn_cast_or_null<ArrayInitLoopExpr>(Var->getInit());
+    return dyn_cast<ArrayInitLoopExpr>(Var->getInit());
   }
 
   static bool classof(const ConstructionContext *CC) {
@@ -400,7 +400,7 @@ public:
   const CXXCtorInitializer *getCXXCtorInitializer() const { return I; }
 
   const ArrayInitLoopExpr *getArrayInitLoop() const override {
-    return dyn_cast_or_null<ArrayInitLoopExpr>(I->getInit());
+    return dyn_cast<ArrayInitLoopExpr>(I->getInit());
   }
 
   static bool classof(const ConstructionContext *CC) {

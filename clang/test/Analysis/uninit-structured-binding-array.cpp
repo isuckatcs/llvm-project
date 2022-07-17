@@ -292,3 +292,68 @@ void array_big_a(void) {
   clang_analyzer_eval(e == 5); // expected-warning{{UNKNOWN}}
   clang_analyzer_eval(f == 6); // expected-warning{{UNKNOWN}}
 }
+
+struct S {
+  int a = 1;
+  int b = 2;
+};
+
+void non_pod_val(void) {
+  S arr[2];
+
+  auto [x, y] = arr;
+
+  clang_analyzer_eval(x.a == 1); // expected-warning{{TRUE}}
+  clang_analyzer_eval(x.b == 2); // expected-warning{{TRUE}}
+
+  clang_analyzer_eval(y.a == 1); // expected-warning{{TRUE}}
+  clang_analyzer_eval(y.b == 2); // expected-warning{{TRUE}}
+}
+
+void non_pod_lref(void) {
+  S arr[2];
+
+  auto &[x, y] = arr;
+
+  clang_analyzer_eval(x.a == 1); // expected-warning{{TRUE}}
+  clang_analyzer_eval(x.b == 2); // expected-warning{{TRUE}}
+
+  clang_analyzer_eval(y.a == 1); // expected-warning{{TRUE}}
+  clang_analyzer_eval(y.b == 2); // expected-warning{{TRUE}}
+}
+
+void non_pod_rref(void) {
+  S arr[2];
+
+  auto &&[x, y] = arr;
+
+  clang_analyzer_eval(x.a == 1); // expected-warning{{TRUE}}
+  clang_analyzer_eval(x.b == 2); // expected-warning{{TRUE}}
+
+  clang_analyzer_eval(y.a == 1); // expected-warning{{TRUE}}
+  clang_analyzer_eval(y.b == 2); // expected-warning{{TRUE}}
+}
+
+struct SUD {
+  int a = 1;
+  int b = 2;
+
+  SUD() = default;
+
+  SUD(const SUD &copy) {
+    a = copy.a + 1;
+    b = copy.b + 1;
+  }
+};
+
+void non_pod_user_defined_val(void) {
+  SUD arr[2];
+
+  auto [x, y] = arr;
+
+  clang_analyzer_eval(x.a == 2); // expected-warning{{TRUE}}
+  clang_analyzer_eval(x.b == 3); // expected-warning{{TRUE}}
+
+  clang_analyzer_eval(y.a == 2); // expected-warning{{TRUE}}
+  clang_analyzer_eval(y.b == 3); // expected-warning{{TRUE}}
+}

@@ -1393,6 +1393,47 @@ SVal RegionStoreManager::ArrayToPointer(Loc Array, QualType T) {
 // Loading values from regions.
 //===----------------------------------------------------------------------===//
 
+static bool isFunny(const MemRegion *MR, const ASTContext &C) {
+  const auto *EL = dyn_cast_or_null<ElementRegion>(MR);
+  if (!EL)
+    return false;
+
+  if (const auto *Base =
+          dyn_cast_or_null<TypedValueRegion>(EL->getSuperRegion())) {
+    const auto BTy = Base->getValueType()
+                         .getDesugaredType(C)
+                         .getUnqualifiedType()
+                         .getCanonicalType();
+
+    const auto Ty = EL->getValueType()
+                        .getDesugaredType(C)
+                        .getUnqualifiedType()
+                        .getCanonicalType();
+
+    // Handle array types.
+    if (const auto *AT = dyn_cast<ArrayType>(BTy)) {
+      QualType ETy;
+      while (AT) {
+        ETy = AT->getElementType()
+                  .getDesugaredType(C)
+                  .getUnqualifiedType()
+                  .getCanonicalType();
+        AT = dyn_cast<ArrayType>(ETy);
+      }
+
+      return ETy != Ty;
+    }
+
+    // Handle fundamental types.
+    if (BTy->isFundamentalType() || BTy->isRecordType())
+      return BTy != Ty;
+
+    // FIXME: Handle other types as well
+  };
+
+  return false;
+}
+
 SVal RegionStoreManager::getBinding(RegionBindingsConstRef B, Loc L, QualType T) {
   assert(!isa<UnknownVal>(L) && "location unknown");
   assert(!isa<UndefinedVal>(L) && "location undefined");
@@ -1448,6 +1489,11 @@ SVal RegionStoreManager::getBinding(RegionBindingsConstRef B, Loc L, QualType T)
   //   char c = *q;  // returns the first byte of 'x'.
   //
   // Such funny addressing will occur due to layering of regions.
+  // For now let's just prevent false positives. If the region has a direct
+  // binding, ignore if it's funny.
+  if (isFunny(R, svalBuilder.getContext()) && !B.lookup(R, BindingKey::Direct))
+    return UnknownVal();
+
   if (RTy->isStructureOrClassType())
     return getBindingForStruct(B, R);
 

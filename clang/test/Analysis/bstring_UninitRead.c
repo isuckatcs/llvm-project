@@ -1,6 +1,5 @@
 // RUN: %clang_analyze_cc1 -verify %s \
-// RUN: -analyzer-checker=core,alpha.unix.cstring
-
+// RUN: -analyzer-checker=core,alpha.unix.cstring,debug.ExprInspection
 
 // This file is generally for the alpha.unix.cstring.UninitializedRead Checker, the reason for putting it into
 // the separate file because the checker is break the some existing test cases in bstring.c file , so we don't 
@@ -31,12 +30,9 @@ void mempcpy14() {
   int dst[5] = {0};
   int *p;
 
-  p = mempcpy(dst, src, 4 * sizeof(int)); // expected-warning{{Bytes string function accesses uninitialized/garbage values}}
-   // FIXME: This behaviour is actually surprising and needs to be fixed, 
-   // mempcpy seems to consider the very last byte of the src buffer uninitialized
-   // and returning undef unfortunately. It should have returned unknown or a conjured value instead.
+  p = mempcpy(dst, src, 4 * sizeof(int));
 
-  clang_analyzer_eval(p == &dst[4]); // no-warning (above is fatal)
+  clang_analyzer_eval(p == &dst[4]); // expected-warning{{TRUE}}
 }
 
 struct st {

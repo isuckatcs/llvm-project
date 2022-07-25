@@ -142,7 +142,8 @@ void multiDimensionalArrayPointerCasts(void) {
   // FIXME: should be TRUE (i.e. same symbol).
   clang_analyzer_eval(*y1 == *y2); // expected-warning{{UNKNOWN}}
 
-  clang_analyzer_eval(*((char *)y1) == *((char *) y2)); // expected-warning{{TRUE}}
+  // FIXME: should be TRUE
+  clang_analyzer_eval(*((char *)y1) == *((char *)y2)); // expected-warning{{UNKNOWN}}
 
   clang_analyzer_eval(y1 == y3); // expected-warning{{TRUE}}
 
@@ -151,7 +152,8 @@ void multiDimensionalArrayPointerCasts(void) {
   // FIXME: should be TRUE (i.e. same symbol).
   clang_analyzer_eval(*y1 == *y3); // expected-warning{{UNKNOWN}}
 
-  clang_analyzer_eval(*((char *)y1) == *((char *) y3)); // expected-warning{{TRUE}}
+  // FIXME: should be TRUE
+  clang_analyzer_eval(*((char *)y1) == *((char *)y3)); // expected-warning{{UNKNOWN}}
 }
 
 void *getVoidPtr(void);

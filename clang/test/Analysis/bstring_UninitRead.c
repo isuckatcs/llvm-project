@@ -48,8 +48,7 @@ void mempcpy15() {
   struct st *p2;
 
   p1 = (&s2) + 1;
-  p2 = mempcpy(&s2, &s1, sizeof(struct st)); // expected-warning{{Bytes string function accesses uninitialized/garbage values}}
-  // FIXME: It seems same as mempcpy14() case.
-  
-  clang_analyzer_eval(p1 == p2); // no-warning (above is fatal)
+  p2 = mempcpy(&s2, &s1, sizeof(struct st));
+
+  clang_analyzer_eval(p1 == p2); // expected-warning{{TRUE}}
 }

@@ -12,7 +12,7 @@ typedef struct {
 void array_struct_bitfield_1() {
   BITFIELD_CAST ff = {0};
   BITFIELD_CAST *pff = &ff;
-  clang_analyzer_eval(*((int *)pff + 1) == 0); // expected-warning{{TRUE}}
+  clang_analyzer_eval(*((int *)pff + 1) == 0); // expected-warning{{UNKNOWN}}
   ff.b[0] = 3;
   clang_analyzer_eval(*((int *)pff + 1) == 3); // expected-warning{{TRUE}}
 }
@@ -20,7 +20,13 @@ void array_struct_bitfield_1() {
 int array_struct_bitfield_2() {
   BITFIELD_CAST ff = {0};
   BITFIELD_CAST *pff = &ff;
-  int a = *((int *)pff + 2); // expected-warning{{Assigned value is garbage or undefined [core.uninitialized.Assign]}}
+  int a = *((int *)pff + 2); // no-warning
+
+  clang_analyzer_eval(((int *)pff + 2) == &ff.b[1]); // expected-warning{{TRUE}}
+  clang_analyzer_eval(ff.b[1] == 0);                 // expected-warning{{TRUE}}
+  // FIXME: this should be TRUE
+  clang_analyzer_eval(a == 0); // expected-warning{{UNKNOWN}}
+
   return a;
 }
 

@@ -1344,11 +1344,29 @@ void ExprEngine::ProcessMemberDtor(const CFGMemberDtor D,
   Loc ThisLoc = State->getSVal(ThisStorageLoc).castAs<Loc>();
   SVal FieldVal = State->getLValue(Member, ThisLoc);
 
-  // FIXME: We need to run the same destructor on every element of the array.
-  // This workaround will just run the first destructor (which will still
-  // invalidate the entire array).
+  unsigned Idx = 0;
+  if (const auto *AT = dyn_cast<ArrayType>(T)) {
+    const auto DtorDecl = D.getDestructorDecl(getContext());
+
+    auto data = getPendingArrayDestruction(State, DtorDecl, LCtx)
+                    .getValueOr(PendingArrayDestructionData{});
+
+    Idx = data.idx++;
+    data.shouldInline = shouldInlineArrayDestruction(AT);
+    data.type = T;
+
+    State = setPendingArrayDestruction(State, DtorDecl, LCtx, data);
+  }
+
   EvalCallOptions CallOpts;
-  FieldVal = makeElementRegion(State, FieldVal, T, CallOpts.IsArrayCtorOrDtor);
+  FieldVal =
+      makeElementRegion(State, FieldVal, T, CallOpts.IsArrayCtorOrDtor, Idx);
+
+  NodeBuilder Bldr(Pred, Dst, getBuilderContext());
+
+  EpsilonPoint EP(LCtx, nullptr);
+  Pred = Bldr.generateNode(EP, State, Pred);
+  Bldr.takeNodes(Pred);
 
   VisitCXXDestructor(T, FieldVal.getAsRegion(), CurDtor->getBody(),
                      /*IsBase=*/false, Pred, Dst, CallOpts);

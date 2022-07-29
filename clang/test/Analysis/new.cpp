@@ -3,6 +3,7 @@
 #include "Inputs/system-header-simulator-cxx.h"
 
 void clang_analyzer_eval(bool);
+void clang_analyzer_warnIfReached();
 
 typedef __typeof__(sizeof(int)) size_t;
 extern "C" void *malloc(size_t);
@@ -324,6 +325,7 @@ void testArrayNull() {
 void testArrayDestr() {
   NoReturnDtor *p = new NoReturnDtor[2];
   delete[] p;
+  clang_analyzer_warnIfReached(); // no-warning
 }
 
 // Invalidate Region even in case of default destructor

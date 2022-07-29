@@ -645,6 +645,9 @@ public:
   getPendingArrayDestruction(ProgramStateRef State, const CXXDestructorDecl *D,
                              const LocationContext *LCtx);
 
+  static Optional<const CXXNewExpr *>
+  getHeapRegionInitializer(ProgramStateRef State, const MemRegion *MR);
+
   /// Retreives the size of the array in the pending ArrayInitLoopExpr.
   static Optional<unsigned> getPendingInitLoop(ProgramStateRef State,
                                                const CXXConstructExpr *E,
@@ -971,6 +974,12 @@ private:
   static ProgramStateRef removePendingInitLoop(ProgramStateRef State,
                                                const CXXConstructExpr *E,
                                                const LocationContext *LCtx);
+
+  static ProgramStateRef setHeapRegionInitializer(ProgramStateRef State,
+                                                  const MemRegion *MR,
+                                                  const CXXNewExpr *);
+  static ProgramStateRef removeHeapRegionInitializer(ProgramStateRef State,
+                                                     const MemRegion *MR);
 
   /// Store the location of a C++ object corresponding to a statement
   /// until the statement is actually encountered. For example, if a DeclStmt

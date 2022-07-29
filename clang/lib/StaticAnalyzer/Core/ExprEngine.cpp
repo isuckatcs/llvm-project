@@ -212,6 +212,11 @@ typedef llvm::ImmutableMap<
 REGISTER_TRAIT_WITH_PROGRAMSTATE(PendingArrayDestruction,
                                  PendingArrayDestructionMap)
 
+// This trait stores the initializer of a heap region.
+// This is useful when we need to evaluate delete[], which
+// has no information about the size of the region.
+REGISTER_MAP_WITH_PROGRAMSTATE(HeapRegionInitializer, const MemRegion *,
+                               const CXXNewExpr *)
 //===----------------------------------------------------------------------===//
 // Engine construction and deletion.
 //===----------------------------------------------------------------------===//
@@ -551,6 +556,31 @@ ProgramStateRef ExprEngine::setPendingInitLoop(ProgramStateRef State,
   assert(!State->contains<PendingInitLoop>(Key) && Size > 0);
 
   return State->set<PendingInitLoop>(Key, Size);
+}
+
+Optional<const CXXNewExpr *>
+ExprEngine::getHeapRegionInitializer(ProgramStateRef State,
+                                     const MemRegion *MR) {
+  return Optional<const CXXNewExpr *>::create(
+      State->get<HeapRegionInitializer>(MR));
+}
+
+ProgramStateRef ExprEngine::setHeapRegionInitializer(ProgramStateRef State,
+                                                     const MemRegion *MR,
+                                                     const CXXNewExpr *Init) {
+  assert((!State->contains<HeapRegionInitializer>(MR) ||
+          Init->getNumPlacementArgs() > 0) &&
+         "The state already contains the initializer for the heap region!");
+
+  return State->set<HeapRegionInitializer>(MR, Init);
+}
+
+ProgramStateRef ExprEngine::removeHeapRegionInitializer(ProgramStateRef State,
+                                                        const MemRegion *MR) {
+  assert(State->contains<HeapRegionInitializer>(MR) &&
+         "The state doesn't contain the initializer for the heap region!");
+
+  return State->remove<HeapRegionInitializer>(MR);
 }
 
 ProgramStateRef
@@ -1178,8 +1208,6 @@ void ExprEngine::ProcessAutomaticObjDtor(const CFGAutomaticObjDtor Dtor,
     varType = cast<TypedValueRegion>(Region)->getValueType();
   }
 
-  EvalCallOptions CallOpts;
-
   unsigned Idx = 0;
   if (const auto *AT = dyn_cast<ArrayType>(varType)) {
     const auto DtorDecl = Dtor.getDestructorDecl(getContext());
@@ -1194,6 +1222,7 @@ void ExprEngine::ProcessAutomaticObjDtor(const CFGAutomaticObjDtor Dtor,
     state = setPendingArrayDestruction(state, DtorDecl, LCtx, data);
   }
 
+  EvalCallOptions CallOpts;
   Region = makeElementRegion(state, loc::MemRegionVal(Region), varType,
                              CallOpts.IsArrayCtorOrDtor, Idx)
                .getAsRegion();
@@ -1231,18 +1260,52 @@ void ExprEngine::ProcessDeleteDtor(const CFGDeleteDtor Dtor,
     return;
   }
 
+  unsigned Idx = 0;
   EvalCallOptions CallOpts;
   const MemRegion *ArgR = ArgVal.getAsRegion();
   if (DE->isArrayForm()) {
-    // FIXME: We need to run the same destructor on every element of the array.
-    // This workaround will just run the first destructor (which will still
-    // invalidate the entire array).
+    const auto DtorDecl = Dtor.getDestructorDecl(getContext());
+
+    auto data = getPendingArrayDestruction(State, DtorDecl, LCtx)
+                    .getValueOr(PendingArrayDestructionData{});
+
+    Idx = data.idx++;
+    auto NewExpr = getHeapRegionInitializer(State, ArgR).getValueOr(nullptr);
+
+    // If we fail to get the new expression, like when the region is allocated
+    // using
+    // ::operator new[], we fall back to conservative evaluation.
+    if (NewExpr) {
+      auto Ctor = NewExpr->getInitializer();
+      auto Ty = Ctor->getType();
+
+      data.shouldInline = shouldInlineArrayDestruction(cast<ArrayType>(Ty));
+      data.type = Ty;
+
+      // Try to do some cleanup, though in case of memory leak the initializer
+      // won't be removed.
+      if (!data.shouldInline)
+        State = removeHeapRegionInitializer(State, ArgR);
+    } else {
+      data.shouldInline = false;
+      data.type = DTy;
+    }
+
+    State = setPendingArrayDestruction(State, DtorDecl, LCtx, data);
+
     CallOpts.IsArrayCtorOrDtor = true;
     // Yes, it may even be a multi-dimensional array.
     while (const auto *AT = getContext().getAsArrayType(DTy))
       DTy = AT->getElementType();
     if (ArgR)
-      ArgR = getStoreManager().GetElementZeroRegion(cast<SubRegion>(ArgR), DTy);
+      ArgR = MRMgr.getElementRegion(DTy, svalBuilder.makeArrayIndex(Idx),
+                                    cast<SubRegion>(ArgR), getContext());
+
+    NodeBuilder Bldr(Pred, Dst, getBuilderContext());
+
+    EpsilonPoint EP(LCtx, nullptr);
+    Pred = Bldr.generateNode(EP, State, Pred);
+    Bldr.takeNodes(Pred);
   }
 
   VisitCXXDestructor(DTy, ArgR, DE, /*IsBase=*/false, Pred, Dst, CallOpts);

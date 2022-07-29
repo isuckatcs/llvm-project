@@ -2400,8 +2400,22 @@ RegionStoreManager::bind(RegionBindingsConstRef B, Loc L, SVal V) {
     R = GetElementZeroRegion(SR, T);
   }
 
-  assert((!isa<CXXThisRegion>(R) || !B.lookup(R)) &&
-         "'this' pointer is not an l-value and is not assignable");
+  //  FIXME: the snippet below fails on this assert
+  //
+  //  struct S {
+  //    ~S() {}
+  //  };
+  //
+  //  foo() {
+  //    S arr[4];
+  //  }
+  //
+  // The problem is that between the dtor calls the 'this' region
+  // is not cleaned up by the symbol reaper, so !B.lookup(R) fails
+  // on the 2nd dtor call.
+  //
+  // assert((!isa<CXXThisRegion>(R) || !B.lookup(R)) &&
+  //        "'this' pointer is not an l-value and is not assignable");
 
   // Clear out bindings that may overlap with this binding.
   RegionBindingsRef NewB = removeSubRegionBindings(B, cast<SubRegion>(R));

@@ -204,6 +204,14 @@ typedef llvm::ImmutableMap<
     std::pair<const CXXConstructExpr *, const LocationContext *>, unsigned>
     PendingInitLoopMap;
 REGISTER_TRAIT_WITH_PROGRAMSTATE(PendingInitLoop, PendingInitLoopMap)
+
+typedef llvm::ImmutableMap<
+    std::pair<const CXXDestructorDecl *, const LocationContext *>,
+    PendingArrayDestructionData>
+    PendingArrayDestructionMap;
+REGISTER_TRAIT_WITH_PROGRAMSTATE(PendingArrayDestruction,
+                                 PendingArrayDestructionMap)
+
 //===----------------------------------------------------------------------===//
 // Engine construction and deletion.
 //===----------------------------------------------------------------------===//
@@ -470,6 +478,53 @@ ProgramStateRef ExprEngine::setIndexOfElementToConstruct(
   return State->set<IndexOfElementToConstruct>(Key, Idx);
 }
 
+Optional<unsigned>
+ExprEngine::getIndexOfElementToConstruct(ProgramStateRef State,
+                                         const CXXConstructExpr *E,
+                                         const LocationContext *LCtx) {
+
+  return Optional<unsigned>::create(
+      State->get<IndexOfElementToConstruct>({E, LCtx->getStackFrame()}));
+}
+
+ProgramStateRef
+ExprEngine::removeIndexOfElementToConstruct(ProgramStateRef State,
+                                            const CXXConstructExpr *E,
+                                            const LocationContext *LCtx) {
+  auto Key = std::make_pair(E, LCtx->getStackFrame());
+
+  assert(E && State->contains<IndexOfElementToConstruct>(Key));
+  return State->remove<IndexOfElementToConstruct>(Key);
+}
+
+Optional<PendingArrayDestructionData>
+ExprEngine::getPendingArrayDestruction(ProgramStateRef State,
+                                       const CXXDestructorDecl *D,
+                                       const LocationContext *LCtx) {
+  return Optional<PendingArrayDestructionData>::create(
+      State->get<PendingArrayDestruction>({D, LCtx->getStackFrame()}));
+}
+
+ProgramStateRef ExprEngine::setPendingArrayDestruction(
+    ProgramStateRef State, const CXXDestructorDecl *D,
+    const LocationContext *LCtx, const PendingArrayDestructionData &Data) {
+  auto Key = std::make_pair(D, LCtx->getStackFrame());
+
+  assert(!State->contains<PendingArrayDestruction>(Key) || Data.idx > 0);
+
+  return State->set<PendingArrayDestruction>(Key, Data);
+}
+
+ProgramStateRef
+ExprEngine::removePendingArrayDestruction(ProgramStateRef State,
+                                          const CXXDestructorDecl *D,
+                                          const LocationContext *LCtx) {
+  auto Key = std::make_pair(D, LCtx->getStackFrame());
+
+  assert(D && State->contains<PendingArrayDestruction>(Key));
+  return State->remove<PendingArrayDestruction>(Key);
+}
+
 Optional<unsigned> ExprEngine::getPendingInitLoop(ProgramStateRef State,
                                                   const CXXConstructExpr *E,
                                                   const LocationContext *LCtx) {
@@ -496,25 +551,6 @@ ProgramStateRef ExprEngine::setPendingInitLoop(ProgramStateRef State,
   assert(!State->contains<PendingInitLoop>(Key) && Size > 0);
 
   return State->set<PendingInitLoop>(Key, Size);
-}
-
-Optional<unsigned>
-ExprEngine::getIndexOfElementToConstruct(ProgramStateRef State,
-                                         const CXXConstructExpr *E,
-                                         const LocationContext *LCtx) {
-
-  return Optional<unsigned>::create(
-      State->get<IndexOfElementToConstruct>({E, LCtx->getStackFrame()}));
-}
-
-ProgramStateRef
-ExprEngine::removeIndexOfElementToConstruct(ProgramStateRef State,
-                                            const CXXConstructExpr *E,
-                                            const LocationContext *LCtx) {
-  auto Key = std::make_pair(E, LCtx->getStackFrame());
-
-  assert(E && State->contains<IndexOfElementToConstruct>(Key));
-  return State->remove<IndexOfElementToConstruct>(Key);
 }
 
 ProgramStateRef
@@ -1124,7 +1160,9 @@ void ExprEngine::ProcessAutomaticObjDtor(const CFGAutomaticObjDtor Dtor,
   QualType varType = varDecl->getType();
 
   ProgramStateRef state = Pred->getState();
-  SVal dest = state->getLValue(varDecl, Pred->getLocationContext());
+  const LocationContext *LCtx = Pred->getLocationContext();
+
+  SVal dest = state->getLValue(varDecl, LCtx);
   const MemRegion *Region = dest.castAs<loc::MemRegionVal>().getRegion();
 
   if (varType->isReferenceType()) {
@@ -1140,13 +1178,31 @@ void ExprEngine::ProcessAutomaticObjDtor(const CFGAutomaticObjDtor Dtor,
     varType = cast<TypedValueRegion>(Region)->getValueType();
   }
 
-  // FIXME: We need to run the same destructor on every element of the array.
-  // This workaround will just run the first destructor (which will still
-  // invalidate the entire array).
   EvalCallOptions CallOpts;
+
+  unsigned Idx = 0;
+  if (const auto *AT = dyn_cast<ArrayType>(varType)) {
+    const auto DtorDecl = Dtor.getDestructorDecl(getContext());
+
+    auto data = getPendingArrayDestruction(state, DtorDecl, LCtx)
+                    .getValueOr(PendingArrayDestructionData{});
+
+    Idx = data.idx++;
+    data.shouldInline = shouldInlineArrayDestruction(AT);
+    data.type = varType;
+
+    state = setPendingArrayDestruction(state, DtorDecl, LCtx, data);
+  }
+
   Region = makeElementRegion(state, loc::MemRegionVal(Region), varType,
-                             CallOpts.IsArrayCtorOrDtor)
+                             CallOpts.IsArrayCtorOrDtor, Idx)
                .getAsRegion();
+
+  NodeBuilder Bldr(Pred, Dst, getBuilderContext());
+
+  EpsilonPoint EP(LCtx, nullptr);
+  Pred = Bldr.generateNode(EP, state, Pred);
+  Bldr.takeNodes(Pred);
 
   VisitCXXDestructor(varType, Region, Dtor.getTriggerStmt(),
                      /*IsBase=*/false, Pred, Dst, CallOpts);

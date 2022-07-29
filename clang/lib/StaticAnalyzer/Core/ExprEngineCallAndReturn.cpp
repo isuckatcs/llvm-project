@@ -234,6 +234,20 @@ void ExprEngine::processCallExit(ExplodedNode *CEBNode) {
   // but we want to evaluate it as many times as many elements the array has.
   bool ShouldRepeatCall = false;
 
+  if (const auto *DtorDecl =
+          dyn_cast_or_null<CXXDestructorDecl>(Call->getDecl())) {
+    if (auto Data = getPendingArrayDestruction(state, DtorDecl, callerCtx)) {
+      // FIXME: Handle non constant array types
+      if (const auto *CAT = dyn_cast<ConstantArrayType>(Data->type)) {
+        unsigned Size = getContext().getConstantArrayElementCount(CAT);
+        ShouldRepeatCall = Data->shouldInline && Data->idx < Size;
+      }
+
+      if (!ShouldRepeatCall)
+        state = removePendingArrayDestruction(state, DtorDecl, callerCtx);
+    }
+  }
+
   // If the callee returns an expression, bind its value to CallExpr.
   if (CE) {
     if (const ReturnStmt *RS = dyn_cast_or_null<ReturnStmt>(LastSt)) {
@@ -818,11 +832,6 @@ ExprEngine::mayInlineCallKind(const CallEvent &Call, const ExplodedNode *Pred,
         !Opts.MayInlineCXXAllocator)
       return CIP_DisallowedOnce;
 
-    // FIXME: We don't handle constructors or destructors for arrays properly.
-    // Even once we do, we still need to be careful about implicitly-generated
-    // initializers for array fields in default move/copy constructors.
-    // We still allow construction into ElementRegion targets when they don't
-    // represent array elements.
     if (CallOpts.IsArrayCtorOrDtor) {
       if (!shouldInlineArrayConstruction(Pred->getState(), CtorExpr, CurLC))
         return CIP_DisallowedOnce;
@@ -877,9 +886,15 @@ ExprEngine::mayInlineCallKind(const CallEvent &Call, const ExplodedNode *Pred,
     assert(ADC->getCFGBuildOptions().AddImplicitDtors && "No CFG destructors");
     (void)ADC;
 
-    // FIXME: We don't handle destructors for arrays properly.
-    if (CallOpts.IsArrayCtorOrDtor)
-      return CIP_DisallowedOnce;
+    if (!CallOpts.IsArrayCtorOrDtor) {
+      const CXXDestructorCall &Dtor = cast<CXXDestructorCall>(Call);
+      if (auto Data = getPendingArrayDestruction(
+              Pred->getState(), cast<CXXDestructorDecl>(Dtor.getDecl()),
+              CurLC)) {
+        if (!Data->shouldInline)
+          return CIP_DisallowedOnce;
+      }
+    }
 
     // Allow disabling temporary destructor inlining with a separate option.
     if (CallOpts.IsTemporaryCtorOrDtor &&
@@ -1108,6 +1123,17 @@ bool ExprEngine::shouldInlineArrayConstruction(const ProgramStateRef State,
   // Check if we're inside an ArrayInitLoopExpr, and it's sufficiently small.
   if (auto Size = getPendingInitLoop(State, CE, LCtx))
     return *Size <= AMgr.options.maxBlockVisitOnPath;
+
+  return false;
+}
+
+bool ExprEngine::shouldInlineArrayDestruction(const ArrayType *Type) {
+  // FIXME: Handle other arrays types.
+  if (const auto *CAT = dyn_cast<ConstantArrayType>(Type)) {
+    unsigned Size = getContext().getConstantArrayElementCount(CAT);
+
+    return Size <= AMgr.options.maxBlockVisitOnPath;
+  }
 
   return false;
 }

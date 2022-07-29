@@ -1,0 +1,77 @@
+// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -analyzer-config c++-inlining=destructors -verify %s
+
+void clang_analyzer_eval(bool);
+void clang_analyzer_checkInlined(bool);
+
+int a, b, c, d;
+
+struct InlineDtor {
+  static int cnt;
+  static int dtorCalled;
+  ~InlineDtor() {
+    switch (dtorCalled) {
+    case 0:
+      a = cnt++;
+      break;
+    case 1:
+      b = cnt++;
+      break;
+    case 2:
+      c = cnt++;
+      break;
+    case 3:
+      d = cnt++;
+      break;
+    }
+
+    ++dtorCalled;
+  }
+};
+
+int InlineDtor::cnt = 0;
+int InlineDtor::dtorCalled = 0;
+
+void foo() {
+  InlineDtor::cnt = 0;
+  InlineDtor::dtorCalled = 0;
+  InlineDtor arr[4];
+}
+
+void testAutoDtor() {
+  foo();
+
+  clang_analyzer_eval(a == 0); // expected-warning {{TRUE}}
+  clang_analyzer_eval(b == 1); // expected-warning {{TRUE}}
+  clang_analyzer_eval(c == 2); // expected-warning {{TRUE}}
+  clang_analyzer_eval(d == 3); // expected-warning {{TRUE}}
+}
+
+void testDeleteDtor() {
+  InlineDtor::cnt = 10;
+  InlineDtor::dtorCalled = 0;
+
+  InlineDtor *arr = new InlineDtor[4];
+  delete[] arr;
+
+  clang_analyzer_eval(a == 10); // expected-warning {{TRUE}}
+  clang_analyzer_eval(b == 11); // expected-warning {{TRUE}}
+  clang_analyzer_eval(c == 12); // expected-warning {{TRUE}}
+  clang_analyzer_eval(d == 13); // expected-warning {{TRUE}}
+}
+
+struct MemberDtor {
+  InlineDtor arr[4];
+};
+
+void testMemberDtor() {
+  InlineDtor::cnt = 5;
+  InlineDtor::dtorCalled = 0;
+
+  MemberDtor *MD = new MemberDtor{};
+  delete MD;
+
+  clang_analyzer_eval(a == 5); // expected-warning {{TRUE}}
+  clang_analyzer_eval(b == 6); // expected-warning {{TRUE}}
+  clang_analyzer_eval(c == 7); // expected-warning {{TRUE}}
+  clang_analyzer_eval(d == 8); // expected-warning {{TRUE}}
+}

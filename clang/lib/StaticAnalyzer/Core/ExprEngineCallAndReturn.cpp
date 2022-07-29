@@ -1111,14 +1111,16 @@ bool ExprEngine::shouldInlineArrayConstruction(const ProgramStateRef State,
   if (!CE)
     return false;
 
-  auto Type = CE->getType();
-
-  // FIXME: Handle other arrays types.
-  if (const auto *CAT = dyn_cast<ConstantArrayType>(Type)) {
-    unsigned Size = getContext().getConstantArrayElementCount(CAT);
-
-    return Size <= AMgr.options.maxBlockVisitOnPath;
-  }
+  // This might seem conter-intuitive at first glance, but the functions are
+  // closely related. Reasoning about destructors depends only on the type
+  // of the expression that initialized the memory region, which is the
+  // CXXConstructExpr. So to avoid code repetition, the work is delegated
+  // to the function that reasons about destructor inlining. Also note that
+  // if the constructors of the array elements are inlined, the destructors
+  // can also be inlined and if the destructors can be inline, it's safe to
+  // inline the constructors.
+  if (shouldInlineArrayDestruction(dyn_cast<ArrayType>(CE->getType())))
+    return true;
 
   // Check if we're inside an ArrayInitLoopExpr, and it's sufficiently small.
   if (auto Size = getPendingInitLoop(State, CE, LCtx))
@@ -1128,6 +1130,9 @@ bool ExprEngine::shouldInlineArrayConstruction(const ProgramStateRef State,
 }
 
 bool ExprEngine::shouldInlineArrayDestruction(const ArrayType *Type) {
+  if (!Type)
+    return false;
+
   // FIXME: Handle other arrays types.
   if (const auto *CAT = dyn_cast<ConstantArrayType>(Type)) {
     unsigned Size = getContext().getConstantArrayElementCount(CAT);

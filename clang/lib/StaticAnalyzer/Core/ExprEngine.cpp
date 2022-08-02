@@ -1131,7 +1131,9 @@ ExprEngine::prepareStateForArrayDestruction(const ProgramStateRef State,
     data.size = ElementCount;
   }
 
-  return {setPendingArrayDestruction(State, LCtx, data), data.idx - 1};
+  // Note: the destructors are called in reverse order, hence the index of the
+  // region is `size` - `idx`.
+  return {setPendingArrayDestruction(State, LCtx, data), data.size - data.idx};
 }
 
 void ExprEngine::ProcessImplicitDtor(const CFGImplicitDtor D,

@@ -1,4 +1,5 @@
-// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -analyzer-config c++-inlining=destructors -verify %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -analyzer-config c++-inlining=destructors -verify -std=c++11 %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -analyzer-config c++-inlining=destructors -verify -std=c++17 %s
 
 void clang_analyzer_eval(bool);
 void clang_analyzer_checkInlined(bool);
@@ -93,4 +94,36 @@ void testMultipleMemberDtor() {
   clang_analyzer_eval(b == 35); // expected-warning {{TRUE}}
   clang_analyzer_eval(c == 36); // expected-warning {{TRUE}}
   clang_analyzer_eval(d == 37); // expected-warning {{TRUE}}
+}
+
+int EvalOrderArr[4];
+
+struct EvalOrder
+{
+  int ctor = 0;
+  static int dtorCalled;
+  static int ctorCalled;
+
+  EvalOrder() { ctor = ctorCalled++; };
+
+  ~EvalOrder() { EvalOrderArr[ctor] = dtorCalled++; }
+};
+
+int EvalOrder::ctorCalled = 0;
+int EvalOrder::dtorCalled = 0;
+
+void dtorEvaluationOrder(){
+  EvalOrder::ctorCalled = 0;
+  EvalOrder::dtorCalled = 0;
+  
+  EvalOrder* eptr = new EvalOrder[4];
+  delete[] eptr;
+
+  clang_analyzer_eval(EvalOrder::dtorCalled == 4); // expected-warning {{TRUE}}
+  clang_analyzer_eval(EvalOrder::dtorCalled == EvalOrder::ctorCalled); // expected-warning {{TRUE}}
+
+  clang_analyzer_eval(EvalOrderArr[0] == 3); // expected-warning {{TRUE}}
+  clang_analyzer_eval(EvalOrderArr[1] == 2); // expected-warning {{TRUE}}
+  clang_analyzer_eval(EvalOrderArr[2] == 1); // expected-warning {{TRUE}}
+  clang_analyzer_eval(EvalOrderArr[3] == 0); // expected-warning {{TRUE}}
 }

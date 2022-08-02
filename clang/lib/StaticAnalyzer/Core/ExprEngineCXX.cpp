@@ -1028,8 +1028,7 @@ void ExprEngine::VisitCXXNewExpr(const CXXNewExpr *CNE, ExplodedNode *Pred,
       }
     }
 
-    auto LCtx = Pred->getLocationContext();
-    State = State->BindExpr(CNE, LCtx, Result);
+    State = State->BindExpr(CNE, Pred->getLocationContext(), Result);
     Bldr.generateNode(CNE, Pred, State);
     return;
   }

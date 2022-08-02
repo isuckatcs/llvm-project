@@ -9,7 +9,7 @@ struct InlineDtor {
   static int cnt;
   static int dtorCalled;
   ~InlineDtor() {
-    switch (dtorCalled) {
+    switch (dtorCalled % 4) {
     case 0:
       a = cnt++;
       break;
@@ -74,4 +74,23 @@ void testMemberDtor() {
   clang_analyzer_eval(b == 6); // expected-warning {{TRUE}}
   clang_analyzer_eval(c == 7); // expected-warning {{TRUE}}
   clang_analyzer_eval(d == 8); // expected-warning {{TRUE}}
+}
+
+struct MultipleMemberDtor
+{
+  InlineDtor arr[4];
+  InlineDtor arr2[4];
+};
+
+void testMultipleMemberDtor() {
+  InlineDtor::cnt = 30;
+  InlineDtor::dtorCalled = 0;
+
+  MultipleMemberDtor *MD = new MultipleMemberDtor{};
+  delete MD;
+
+  clang_analyzer_eval(a == 34); // expected-warning {{TRUE}}
+  clang_analyzer_eval(b == 35); // expected-warning {{TRUE}}
+  clang_analyzer_eval(c == 36); // expected-warning {{TRUE}}
+  clang_analyzer_eval(d == 37); // expected-warning {{TRUE}}
 }

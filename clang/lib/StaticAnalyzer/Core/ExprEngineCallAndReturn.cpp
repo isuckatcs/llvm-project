@@ -236,25 +236,12 @@ void ExprEngine::processCallExit(ExplodedNode *CEBNode) {
 
   if (const auto *DtorDecl =
           dyn_cast_or_null<CXXDestructorDecl>(Call->getDecl())) {
-    if (auto Data = getPendingArrayDestruction(state, DtorDecl, callerCtx)) {
+    if (auto Data = getPendingArrayDestruction(state, callerCtx)) {
 
-      ShouldRepeatCall = Data->shouldInline;
-
-      // If we know the size, make the decision based on that.
-      if (Data->size) {
-        ShouldRepeatCall &= Data->idx < Data->size;
-      }
-      // Otherwise make the decision based on the type
-      else {
-        // FIXME: Handle non constant array types
-        if (const auto *CAT = dyn_cast<ConstantArrayType>(Data->type)) {
-          unsigned Size = getContext().getConstantArrayElementCount(CAT);
-          ShouldRepeatCall &= Data->idx < Size;
-        }
-      }
+      ShouldRepeatCall = Data->shouldInline && Data->idx < Data->size;
 
       if (!ShouldRepeatCall)
-        state = removePendingArrayDestruction(state, DtorDecl, callerCtx);
+        state = removePendingArrayDestruction(state, callerCtx);
     }
   }
 
@@ -897,10 +884,7 @@ ExprEngine::mayInlineCallKind(const CallEvent &Call, const ExplodedNode *Pred,
     (void)ADC;
 
     if (!CallOpts.IsArrayCtorOrDtor) {
-      const CXXDestructorCall &Dtor = cast<CXXDestructorCall>(Call);
-      if (auto Data = getPendingArrayDestruction(
-              Pred->getState(), cast<CXXDestructorDecl>(Dtor.getDecl()),
-              CurLC)) {
+      if (auto Data = getPendingArrayDestruction(Pred->getState(), CurLC)) {
         if (!Data->shouldInline)
           return CIP_DisallowedOnce;
       }

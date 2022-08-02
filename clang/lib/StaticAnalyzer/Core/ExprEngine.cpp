@@ -206,9 +206,7 @@ typedef llvm::ImmutableMap<
     PendingInitLoopMap;
 REGISTER_TRAIT_WITH_PROGRAMSTATE(PendingInitLoop, PendingInitLoopMap)
 
-typedef llvm::ImmutableMap<
-    std::pair<const CXXDestructorDecl *, const LocationContext *>,
-    PendingArrayDestructionData>
+typedef llvm::ImmutableMap<const LocationContext *, PendingArrayDestructionData>
     PendingArrayDestructionMap;
 REGISTER_TRAIT_WITH_PROGRAMSTATE(PendingArrayDestruction,
                                  PendingArrayDestructionMap)
@@ -528,16 +526,19 @@ ExprEngine::removeIndexOfElementToConstruct(ProgramStateRef State,
 
 Optional<PendingArrayDestructionData>
 ExprEngine::getPendingArrayDestruction(ProgramStateRef State,
-                                       const CXXDestructorDecl *D,
                                        const LocationContext *LCtx) {
+  assert(LCtx && "LocationContext shouldn't be null!");
+
   return Optional<PendingArrayDestructionData>::create(
-      State->get<PendingArrayDestruction>({D, LCtx->getStackFrame()}));
+      State->get<PendingArrayDestruction>(LCtx->getStackFrame()));
 }
 
 ProgramStateRef ExprEngine::setPendingArrayDestruction(
-    ProgramStateRef State, const CXXDestructorDecl *D,
-    const LocationContext *LCtx, const PendingArrayDestructionData &Data) {
-  auto Key = std::make_pair(D, LCtx->getStackFrame());
+    ProgramStateRef State, const LocationContext *LCtx,
+    const PendingArrayDestructionData &Data) {
+  assert(LCtx && "LocationContext shouldn't be null!");
+
+  auto Key = LCtx->getStackFrame();
 
   assert(!State->contains<PendingArrayDestruction>(Key) || Data.idx > 0);
 
@@ -546,11 +547,12 @@ ProgramStateRef ExprEngine::setPendingArrayDestruction(
 
 ProgramStateRef
 ExprEngine::removePendingArrayDestruction(ProgramStateRef State,
-                                          const CXXDestructorDecl *D,
                                           const LocationContext *LCtx) {
-  auto Key = std::make_pair(D, LCtx->getStackFrame());
+  assert(LCtx && "LocationContext shouldn't be null!");
 
-  assert(D && State->contains<PendingArrayDestruction>(Key));
+  auto Key = LCtx->getStackFrame();
+
+  assert(LCtx && State->contains<PendingArrayDestruction>(Key));
   return State->remove<PendingArrayDestruction>(Key);
 }
 
@@ -1108,6 +1110,30 @@ void ExprEngine::ProcessInitializer(const CFGInitializer CFGInit,
   Engine.enqueue(Dst, currBldrCtx->getBlock(), currStmtIdx);
 }
 
+std::pair<ProgramStateRef, uint64_t>
+ExprEngine::prepareStateForArrayDestruction(const ProgramStateRef State,
+                                            const MemRegion *Region,
+                                            const QualType &ElementTy,
+                                            const LocationContext *LCtx) {
+  auto ElementCountVal =
+      getDynamicElementCount(State, Region, svalBuilder, ElementTy);
+
+  auto data = getPendingArrayDestruction(State, LCtx)
+                  .value_or(PendingArrayDestructionData{});
+
+  data.shouldInline = false;
+  data.size = 0;
+  data.idx++;
+
+  if (!ElementCountVal.isUnknownOrUndef()) {
+    uint64_t ElementCount = ElementCountVal.getAsInteger()->getLimitedValue();
+    data.shouldInline = shouldInlineArrayDestruction(nullptr, ElementCount);
+    data.size = ElementCount;
+  }
+
+  return {setPendingArrayDestruction(State, LCtx, data), data.idx - 1};
+}
+
 void ExprEngine::ProcessImplicitDtor(const CFGImplicitDtor D,
                                      ExplodedNode *Pred) {
   ExplodedNodeSet Dst;
@@ -1180,18 +1206,9 @@ void ExprEngine::ProcessAutomaticObjDtor(const CFGAutomaticObjDtor Dtor,
   }
 
   unsigned Idx = 0;
-  if (const auto *AT = dyn_cast<ArrayType>(varType)) {
-    const auto DtorDecl = Dtor.getDestructorDecl(getContext());
-
-    auto data = getPendingArrayDestruction(state, DtorDecl, LCtx)
-                    .value_or(PendingArrayDestructionData{});
-
-    Idx = data.idx++;
-    data.shouldInline = shouldInlineArrayDestruction(AT);
-    data.type = varType;
-
-    state = setPendingArrayDestruction(state, DtorDecl, LCtx, data);
-  }
+  if (const auto *AT = dyn_cast<ArrayType>(varType))
+    std::tie(state, Idx) = prepareStateForArrayDestruction(
+        state, Region, AT->getElementType(), LCtx);
 
   EvalCallOptions CallOpts;
   Region = makeElementRegion(state, loc::MemRegionVal(Region), varType,
@@ -1236,24 +1253,8 @@ void ExprEngine::ProcessDeleteDtor(const CFGDeleteDtor Dtor,
   const MemRegion *ArgR = ArgVal.getAsRegion();
 
   if (DE->isArrayForm()) {
-    const auto DtorDecl = Dtor.getDestructorDecl(getContext());
-
-    auto data = getPendingArrayDestruction(State, DtorDecl, LCtx)
-                    .value_or(PendingArrayDestructionData{});
-
-    Idx = data.idx++;
-    data.shouldInline = false;
-
-    const SVal ElementCount =
-        getDynamicElementCount(State, ArgR, svalBuilder, DTy);
-
-    if (!ElementCount.isUnknownOrUndef()) {
-      data.size = ElementCount.getAsInteger()->getLimitedValue();
-      data.shouldInline = shouldInlineArrayDestruction(
-          nullptr, ElementCount.getAsInteger()->getLimitedValue());
-    }
-
-    State = setPendingArrayDestruction(State, DtorDecl, LCtx, data);
+    std::tie(State, Idx) =
+        prepareStateForArrayDestruction(State, ArgR, DTy, LCtx);
 
     CallOpts.IsArrayCtorOrDtor = true;
     // Yes, it may even be a multi-dimensional array.
@@ -1307,18 +1308,9 @@ void ExprEngine::ProcessMemberDtor(const CFGMemberDtor D,
   SVal FieldVal = State->getLValue(Member, ThisLoc);
 
   unsigned Idx = 0;
-  if (const auto *AT = dyn_cast<ArrayType>(T)) {
-    const auto DtorDecl = D.getDestructorDecl(getContext());
-
-    auto data = getPendingArrayDestruction(State, DtorDecl, LCtx)
-                    .value_or(PendingArrayDestructionData{});
-
-    Idx = data.idx++;
-    data.shouldInline = shouldInlineArrayDestruction(AT);
-    data.type = T;
-
-    State = setPendingArrayDestruction(State, DtorDecl, LCtx, data);
-  }
+  if (const auto *AT = dyn_cast<ArrayType>(T))
+    std::tie(State, Idx) = prepareStateForArrayDestruction(
+        State, FieldVal.getAsRegion(), AT->getElementType(), LCtx);
 
   EvalCallOptions CallOpts;
   FieldVal =

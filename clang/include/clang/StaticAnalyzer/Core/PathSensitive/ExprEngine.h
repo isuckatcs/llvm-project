@@ -121,21 +121,18 @@ struct EvalCallOptions {
 };
 
 struct PendingArrayDestructionData {
-  QualType type;
   uint64_t size = 0;
   uint64_t idx = 0;
   bool shouldInline = false;
 
   void Profile(llvm::FoldingSetNodeID &ID) const {
-    type.Profile(ID);
     ID.AddInteger(size);
     ID.AddInteger(idx);
     ID.AddBoolean(shouldInline);
   }
 
   bool operator==(PendingArrayDestructionData R) const {
-    return type == R.type && size == R.size && idx == R.idx &&
-           shouldInline == R.shouldInline;
+    return size == R.size && idx == R.idx && shouldInline == R.shouldInline;
   }
 
   bool operator!=(PendingArrayDestructionData R) const { return !(*this == R); }
@@ -645,7 +642,7 @@ public:
 
   /// Retreives which element is being destructed in a non-POD type array.
   static Optional<PendingArrayDestructionData>
-  getPendingArrayDestruction(ProgramStateRef State, const CXXDestructorDecl *D,
+  getPendingArrayDestruction(ProgramStateRef State,
                              const LocationContext *LCtx);
 
   /// Retreives the size of the array in the pending ArrayInitLoopExpr.
@@ -861,6 +858,10 @@ private:
   bool shouldInlineArrayDestruction(const ArrayType *Type,
                                     const Optional<uint64_t> Size = None);
 
+  std::pair<ProgramStateRef, uint64_t> prepareStateForArrayDestruction(
+      const ProgramStateRef State, const MemRegion *Region,
+      const QualType &ElementTy, const LocationContext *LCtx);
+
   /// Checks whether we construct an array of non-POD type, and decides if the
   /// constructor should be inkoved once again.
   bool shouldRepeatCtorCall(ProgramStateRef State, const CXXConstructExpr *E,
@@ -962,13 +963,11 @@ private:
   /// Assuming we destruct an array of non-POD types, this method allows us
   /// to store which element is to be destructed next.
   static ProgramStateRef
-  setPendingArrayDestruction(ProgramStateRef State, const CXXDestructorDecl *D,
-                             const LocationContext *LCtx,
+  setPendingArrayDestruction(ProgramStateRef State, const LocationContext *LCtx,
                              const PendingArrayDestructionData &Data);
 
   static ProgramStateRef
   removePendingArrayDestruction(ProgramStateRef State,
-                                const CXXDestructorDecl *D,
                                 const LocationContext *LCtx);
 
   /// Sets the size of the array in a pending ArrayInitLoopExpr.

@@ -48,6 +48,7 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ConstraintManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CoreEngine.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/DynamicExtent.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExplodedGraph.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/LoopUnrolling.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/LoopWidening.h"
@@ -212,11 +213,6 @@ typedef llvm::ImmutableMap<
 REGISTER_TRAIT_WITH_PROGRAMSTATE(PendingArrayDestruction,
                                  PendingArrayDestructionMap)
 
-// This trait stores the initializer of a heap region.
-// This is useful when we need to evaluate delete[], which
-// has no information about the size of the region.
-REGISTER_MAP_WITH_PROGRAMSTATE(HeapRegionInitializer, const MemRegion *,
-                               const CXXNewExpr *)
 //===----------------------------------------------------------------------===//
 // Engine construction and deletion.
 //===----------------------------------------------------------------------===//
@@ -483,6 +479,34 @@ ProgramStateRef ExprEngine::setIndexOfElementToConstruct(
   return State->set<IndexOfElementToConstruct>(Key, Idx);
 }
 
+Optional<unsigned> ExprEngine::getPendingInitLoop(ProgramStateRef State,
+                                                  const CXXConstructExpr *E,
+                                                  const LocationContext *LCtx) {
+
+  return Optional<unsigned>::create(
+      State->get<PendingInitLoop>({E, LCtx->getStackFrame()}));
+}
+
+ProgramStateRef ExprEngine::removePendingInitLoop(ProgramStateRef State,
+                                                  const CXXConstructExpr *E,
+                                                  const LocationContext *LCtx) {
+  auto Key = std::make_pair(E, LCtx->getStackFrame());
+
+  assert(E && State->contains<PendingInitLoop>(Key));
+  return State->remove<PendingInitLoop>(Key);
+}
+
+ProgramStateRef ExprEngine::setPendingInitLoop(ProgramStateRef State,
+                                               const CXXConstructExpr *E,
+                                               const LocationContext *LCtx,
+                                               unsigned Size) {
+  auto Key = std::make_pair(E, LCtx->getStackFrame());
+
+  assert(!State->contains<PendingInitLoop>(Key) && Size > 0);
+
+  return State->set<PendingInitLoop>(Key, Size);
+}
+
 Optional<unsigned>
 ExprEngine::getIndexOfElementToConstruct(ProgramStateRef State,
                                          const CXXConstructExpr *E,
@@ -528,59 +552,6 @@ ExprEngine::removePendingArrayDestruction(ProgramStateRef State,
 
   assert(D && State->contains<PendingArrayDestruction>(Key));
   return State->remove<PendingArrayDestruction>(Key);
-}
-
-Optional<unsigned> ExprEngine::getPendingInitLoop(ProgramStateRef State,
-                                                  const CXXConstructExpr *E,
-                                                  const LocationContext *LCtx) {
-
-  return Optional<unsigned>::create(
-      State->get<PendingInitLoop>({E, LCtx->getStackFrame()}));
-}
-
-ProgramStateRef ExprEngine::removePendingInitLoop(ProgramStateRef State,
-                                                  const CXXConstructExpr *E,
-                                                  const LocationContext *LCtx) {
-  auto Key = std::make_pair(E, LCtx->getStackFrame());
-
-  assert(E && State->contains<PendingInitLoop>(Key));
-  return State->remove<PendingInitLoop>(Key);
-}
-
-ProgramStateRef ExprEngine::setPendingInitLoop(ProgramStateRef State,
-                                               const CXXConstructExpr *E,
-                                               const LocationContext *LCtx,
-                                               unsigned Size) {
-  auto Key = std::make_pair(E, LCtx->getStackFrame());
-
-  assert(!State->contains<PendingInitLoop>(Key) && Size > 0);
-
-  return State->set<PendingInitLoop>(Key, Size);
-}
-
-Optional<const CXXNewExpr *>
-ExprEngine::getHeapRegionInitializer(ProgramStateRef State,
-                                     const MemRegion *MR) {
-  return Optional<const CXXNewExpr *>::create(
-      State->get<HeapRegionInitializer>(MR));
-}
-
-ProgramStateRef ExprEngine::setHeapRegionInitializer(ProgramStateRef State,
-                                                     const MemRegion *MR,
-                                                     const CXXNewExpr *Init) {
-  assert((!State->contains<HeapRegionInitializer>(MR) ||
-          Init->getNumPlacementArgs() > 0) &&
-         "The state already contains the initializer for the heap region!");
-
-  return State->set<HeapRegionInitializer>(MR, Init);
-}
-
-ProgramStateRef ExprEngine::removeHeapRegionInitializer(ProgramStateRef State,
-                                                        const MemRegion *MR) {
-  assert(State->contains<HeapRegionInitializer>(MR) &&
-         "The state doesn't contain the initializer for the heap region!");
-
-  return State->remove<HeapRegionInitializer>(MR);
 }
 
 ProgramStateRef
@@ -1213,7 +1184,7 @@ void ExprEngine::ProcessAutomaticObjDtor(const CFGAutomaticObjDtor Dtor,
     const auto DtorDecl = Dtor.getDestructorDecl(getContext());
 
     auto data = getPendingArrayDestruction(state, DtorDecl, LCtx)
-                    .getValueOr(PendingArrayDestructionData{});
+                    .value_or(PendingArrayDestructionData{});
 
     Idx = data.idx++;
     data.shouldInline = shouldInlineArrayDestruction(AT);
@@ -1263,32 +1234,23 @@ void ExprEngine::ProcessDeleteDtor(const CFGDeleteDtor Dtor,
   unsigned Idx = 0;
   EvalCallOptions CallOpts;
   const MemRegion *ArgR = ArgVal.getAsRegion();
+
   if (DE->isArrayForm()) {
     const auto DtorDecl = Dtor.getDestructorDecl(getContext());
 
     auto data = getPendingArrayDestruction(State, DtorDecl, LCtx)
-                    .getValueOr(PendingArrayDestructionData{});
+                    .value_or(PendingArrayDestructionData{});
 
     Idx = data.idx++;
-    auto NewExpr = getHeapRegionInitializer(State, ArgR).getValueOr(nullptr);
+    data.shouldInline = false;
 
-    // If we fail to get the new expression, like when the region is allocated
-    // using
-    // ::operator new[], we fall back to conservative evaluation.
-    if (NewExpr) {
-      auto Ctor = NewExpr->getInitializer();
-      auto Ty = Ctor->getType();
+    const SVal ElementCount =
+        getDynamicElementCount(State, ArgR, svalBuilder, DTy);
 
-      data.shouldInline = shouldInlineArrayDestruction(cast<ArrayType>(Ty));
-      data.type = Ty;
-
-      // Try to do some cleanup, though in case of memory leak the initializer
-      // won't be removed.
-      if (!data.shouldInline)
-        State = removeHeapRegionInitializer(State, ArgR);
-    } else {
-      data.shouldInline = false;
-      data.type = DTy;
+    if (!ElementCount.isUnknownOrUndef()) {
+      data.size = ElementCount.getAsInteger()->getLimitedValue();
+      data.shouldInline = shouldInlineArrayDestruction(
+          nullptr, ElementCount.getAsInteger()->getLimitedValue());
     }
 
     State = setPendingArrayDestruction(State, DtorDecl, LCtx, data);
@@ -1349,7 +1311,7 @@ void ExprEngine::ProcessMemberDtor(const CFGMemberDtor D,
     const auto DtorDecl = D.getDestructorDecl(getContext());
 
     auto data = getPendingArrayDestruction(State, DtorDecl, LCtx)
-                    .getValueOr(PendingArrayDestructionData{});
+                    .value_or(PendingArrayDestructionData{});
 
     Idx = data.idx++;
     data.shouldInline = shouldInlineArrayDestruction(AT);

@@ -1029,7 +1029,6 @@ void ExprEngine::VisitCXXNewExpr(const CXXNewExpr *CNE, ExplodedNode *Pred,
     }
 
     auto LCtx = Pred->getLocationContext();
-    State = setHeapRegionInitializer(State, Result.getAsRegion(), CNE);
     State = State->BindExpr(CNE, LCtx, Result);
     Bldr.generateNode(CNE, Pred, State);
     return;
@@ -1047,7 +1046,6 @@ void ExprEngine::VisitCXXNewExpr(const CXXNewExpr *CNE, ExplodedNode *Pred,
   }
 
   // Bind the address of the object, then check to see if we cached out.
-  State = setHeapRegionInitializer(State, Result.getAsRegion(), CNE);
   State = State->BindExpr(CNE, LCtx, Result);
   ExplodedNode *NewN = Bldr.generateNode(CNE, Pred, State);
   if (!NewN)

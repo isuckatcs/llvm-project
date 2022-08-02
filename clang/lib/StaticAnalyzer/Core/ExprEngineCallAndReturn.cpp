@@ -237,10 +237,20 @@ void ExprEngine::processCallExit(ExplodedNode *CEBNode) {
   if (const auto *DtorDecl =
           dyn_cast_or_null<CXXDestructorDecl>(Call->getDecl())) {
     if (auto Data = getPendingArrayDestruction(state, DtorDecl, callerCtx)) {
-      // FIXME: Handle non constant array types
-      if (const auto *CAT = dyn_cast<ConstantArrayType>(Data->type)) {
-        unsigned Size = getContext().getConstantArrayElementCount(CAT);
-        ShouldRepeatCall = Data->shouldInline && Data->idx < Size;
+
+      ShouldRepeatCall = Data->shouldInline;
+
+      // If we know the size, make the decision based on that.
+      if (Data->size) {
+        ShouldRepeatCall &= Data->idx < Data->size;
+      }
+      // Otherwise make the decision based on the type
+      else {
+        // FIXME: Handle non constant array types
+        if (const auto *CAT = dyn_cast<ConstantArrayType>(Data->type)) {
+          unsigned Size = getContext().getConstantArrayElementCount(CAT);
+          ShouldRepeatCall &= Data->idx < Size;
+        }
       }
 
       if (!ShouldRepeatCall)
@@ -1129,15 +1139,24 @@ bool ExprEngine::shouldInlineArrayConstruction(const ProgramStateRef State,
   return false;
 }
 
-bool ExprEngine::shouldInlineArrayDestruction(const ArrayType *Type) {
-  if (!Type)
+bool ExprEngine::shouldInlineArrayDestruction(const ArrayType *Type,
+                                              const Optional<uint64_t> Size) {
+
+  uint64_t maxAllowedSize = AMgr.options.maxBlockVisitOnPath;
+
+  if (!Type && !Size)
     return false;
+
+  if (Size) {
+    assert(!Type && "If Size is specified, Type must be a nullptr!");
+    return *Size <= maxAllowedSize;
+  }
 
   // FIXME: Handle other arrays types.
   if (const auto *CAT = dyn_cast<ConstantArrayType>(Type)) {
-    unsigned Size = getContext().getConstantArrayElementCount(CAT);
+    unsigned ArrSize = getContext().getConstantArrayElementCount(CAT);
 
-    return Size <= AMgr.options.maxBlockVisitOnPath;
+    return ArrSize <= maxAllowedSize;
   }
 
   return false;

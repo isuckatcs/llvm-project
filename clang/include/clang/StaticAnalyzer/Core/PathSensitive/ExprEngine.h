@@ -122,17 +122,20 @@ struct EvalCallOptions {
 
 struct PendingArrayDestructionData {
   QualType type;
-  unsigned idx = 0;
+  uint64_t size = 0;
+  uint64_t idx = 0;
   bool shouldInline = false;
 
   void Profile(llvm::FoldingSetNodeID &ID) const {
     type.Profile(ID);
+    ID.AddInteger(size);
     ID.AddInteger(idx);
     ID.AddBoolean(shouldInline);
   }
 
   bool operator==(PendingArrayDestructionData R) const {
-    return type == R.type && idx == R.idx && shouldInline == R.shouldInline;
+    return type == R.type && size == R.size && idx == R.idx &&
+           shouldInline == R.shouldInline;
   }
 
   bool operator!=(PendingArrayDestructionData R) const { return !(*this == R); }
@@ -645,9 +648,6 @@ public:
   getPendingArrayDestruction(ProgramStateRef State, const CXXDestructorDecl *D,
                              const LocationContext *LCtx);
 
-  static Optional<const CXXNewExpr *>
-  getHeapRegionInitializer(ProgramStateRef State, const MemRegion *MR);
-
   /// Retreives the size of the array in the pending ArrayInitLoopExpr.
   static Optional<unsigned> getPendingInitLoop(ProgramStateRef State,
                                                const CXXConstructExpr *E,
@@ -852,8 +852,14 @@ private:
                                      const LocationContext *LCtx);
 
   /// Checks whether our policies allow us to inline a non-POD type array
-  /// destruction.
-  bool shouldInlineArrayDestruction(const ArrayType *Type);
+  /// destruction. Either specify Type or Size, but never both. If Type is
+  /// specified it will be used to decide about inlining, and in this case
+  /// Size should never be specified. If Size is specified Type must be
+  /// a nullptr.
+  /// \param Type The type of the array.
+  /// \param Size The size of the array.
+  bool shouldInlineArrayDestruction(const ArrayType *Type,
+                                    const Optional<uint64_t> Size = None);
 
   /// Checks whether we construct an array of non-POD type, and decides if the
   /// constructor should be inkoved once again.
@@ -974,12 +980,6 @@ private:
   static ProgramStateRef removePendingInitLoop(ProgramStateRef State,
                                                const CXXConstructExpr *E,
                                                const LocationContext *LCtx);
-
-  static ProgramStateRef setHeapRegionInitializer(ProgramStateRef State,
-                                                  const MemRegion *MR,
-                                                  const CXXNewExpr *);
-  static ProgramStateRef removeHeapRegionInitializer(ProgramStateRef State,
-                                                     const MemRegion *MR);
 
   /// Store the location of a C++ object corresponding to a statement
   /// until the statement is actually encountered. For example, if a DeclStmt

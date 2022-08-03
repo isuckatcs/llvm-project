@@ -3,6 +3,7 @@
 
 void clang_analyzer_eval(bool);
 void clang_analyzer_checkInlined(bool);
+void clang_analyzer_warnIfReached();
 
 int a, b, c, d;
 
@@ -112,7 +113,7 @@ struct EvalOrder
 int EvalOrder::ctorCalled = 0;
 int EvalOrder::dtorCalled = 0;
 
-void dtorEvaluationOrder(){
+void dtorEvaluationOrder() {
   EvalOrder::ctorCalled = 0;
   EvalOrder::dtorCalled = 0;
   
@@ -126,4 +127,23 @@ void dtorEvaluationOrder(){
   clang_analyzer_eval(EvalOrderArr[1] == 2); // expected-warning {{TRUE}}
   clang_analyzer_eval(EvalOrderArr[2] == 1); // expected-warning {{TRUE}}
   clang_analyzer_eval(EvalOrderArr[3] == 0); // expected-warning {{TRUE}}
+}
+
+struct EmptyDtor {
+  ~EmptyDtor(){};
+};
+
+struct DefaultDtor {
+  ~DefaultDtor() = default;
+};
+
+// This function used to fail on an assertion.
+void no_crash() {
+  EmptyDtor* eptr = new EmptyDtor[4];
+  delete[] eptr;
+  clang_analyzer_warnIfReached();  // expected-warning{{REACHABLE}}
+
+  DefaultDtor* dptr = new DefaultDtor[4];
+  delete[] dptr;
+  clang_analyzer_warnIfReached();  // expected-warning{{REACHABLE}}
 }

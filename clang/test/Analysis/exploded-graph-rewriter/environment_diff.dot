@@ -19,6 +19,8 @@ Node0x1 [shape=record,label=
         "dynamic_types": null,
         "constructing_objects": null,
         "index_of_element": null,
+        "pending_init_loops": null,
+        "pending_destructors": null,
         "checker_messages": null,
         "environment": {
           "pointer": "0x2",
@@ -75,6 +77,8 @@ Node0x6 [shape=record,label=
         "dynamic_types": null,
         "constructing_objects": null,
         "index_of_element": null,
+        "pending_init_loops": null,
+        "pending_destructors": null,
         "checker_messages": null,
         "environment": {
           "pointer": "0x2",
@@ -125,6 +129,8 @@ Node0x9 [shape=record,label=
         "dynamic_types": null,
         "constructing_objects": null,
         "index_of_element": null,
+        "pending_init_loops": null,
+        "pending_destructors": null,
         "checker_messages": null,
         "environment": {
           "pointer": "0x2",

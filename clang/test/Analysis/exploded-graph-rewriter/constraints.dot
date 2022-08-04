@@ -25,6 +25,8 @@ Node0x1 [shape=record,label=
         "dynamic_types": null,
         "constructing_objects": null,
         "index_of_element": null,
+        "pending_init_loops": null,
+        "pending_destructors": null,
         "checker_messages": null,
         "constraints": [
           { "symbol": "reg_$0<x>", "range": "{ [0, 0] }" }

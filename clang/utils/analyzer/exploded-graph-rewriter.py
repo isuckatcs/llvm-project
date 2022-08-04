@@ -271,6 +271,8 @@ class ProgramState:
                 'dynamic_types': None,
                 'constructing_objects': None,
                 'index_of_element': None,
+                'pending_init_loops': None,
+                'pending_destructors': None,
                 'checker_messages': None
             }
 
@@ -301,7 +303,15 @@ class ProgramState:
         self.index_of_element = \
             GenericEnvironment(json_ps['index_of_element']) \
             if json_ps['index_of_element'] is not None else None
+        
+        self.pending_init_loops = \
+            GenericEnvironment(json_ps['pending_init_loops']) \
+            if json_ps['pending_init_loops'] is not None else None
 
+        self.pending_destructors = \
+            GenericEnvironment(json_ps['pending_destructors']) \
+            if json_ps['pending_destructors'] is not None else None
+        
         self.checker_messages = CheckerMessages(json_ps['checker_messages']) \
             if json_ps['checker_messages'] is not None else None
 
@@ -804,6 +814,12 @@ class DotDumpVisitor:
                                         s, prev_s)
         self.visit_environment_in_state('index_of_element',
                                         'Indices Of Elements Under Construction',
+                                        s, prev_s)
+        self.visit_environment_in_state('pending_init_loops',
+                                        'Pending Array Init Loop Expressions',
+                                        s, prev_s)
+        self.visit_environment_in_state('pending_destructors',
+                                        'Indices of Elements Under Destruction',
                                         s, prev_s)
         self.visit_checker_messages_in_state(s, prev_s)
 

@@ -240,40 +240,8 @@ void ExprEngine::processCallExit(ExplodedNode *CEBNode) {
 
       ShouldRepeatCall = Data->shouldInline && Data->idx < Data->size;
 
-      // If there is no LastSt, e.g.: a default destructor is called, the `this`
-      // region is not removed from the state. This can cause an assertion
-      // failure if the said destructor belongs to an array element. For
-      // example:
-      //
-      //  {
-      //    struct S { ~S(){} }
-      //    S arr[2];
-      //  }
-      //
-      // At the end of the block, the destructor is called for each element, and
-      // since there is no statement between the 2 calls, `symbolReaper` is not
-      // invoked. This leads to the `this` region staying in the store, when the
-      // 2nd dtor call is entered. Upon entering the call we want to bind `this`
-      // to the store, where there is an assertion on the region not being in
-      // the store (check `RegionStoreManager::bind()` for more details). Note
-      // that the base of the `this` region is the same of each element, the
-      // difference is in the offset, so we fail the assertion.
-      //
-      // That's the reason for we manually remove the said region from the store
-      // at this point.
-      if (!LastSt) {
-        auto ThisVal = svalBuilder.getCXXThis(DtorDecl->getParent(), calleeCtx);
-        auto newStore =
-            getStoreManager().killBinding(state->getStore(), ThisVal);
-
-        auto *Dst = StateMgr.getAllocator().Allocate<ProgramState>();
-        auto *newState = new (Dst) ProgramState(
-            &StateMgr, state->getEnvironment(), newStore, state->getGDM());
-        ProgramStateRef newSt{std::unique_ptr<ProgramState>(newState)};
-
-        processRegionChange(newSt, ThisVal.getAsRegion(), calleeCtx);
-        state = newSt;
-      }
+      auto ThisVal = svalBuilder.getCXXThis(DtorDecl->getParent(), calleeCtx);
+      state = state->killBinding(ThisVal);
 
       if (!ShouldRepeatCall)
         state = removePendingArrayDestruction(state, callerCtx);

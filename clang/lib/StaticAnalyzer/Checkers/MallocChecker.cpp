@@ -331,6 +331,8 @@ public:
 
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
   void checkPostCall(const CallEvent &Call, CheckerContext &C) const;
+  void checkUndefinedNewArraySize(const CallEvent &Call,
+                                  CheckerContext &C) const;
   void checkNewAllocator(const CXXAllocatorCall &Call, CheckerContext &C) const;
   void checkPostObjCMessage(const ObjCMethodCall &Call, CheckerContext &C) const;
   void checkPostStmt(const BlockExpr *BE, CheckerContext &C) const;
@@ -362,6 +364,7 @@ private:
   mutable std::unique_ptr<BugType> BT_BadFree[CK_NumCheckKinds];
   mutable std::unique_ptr<BugType> BT_FreeAlloca[CK_NumCheckKinds];
   mutable std::unique_ptr<BugType> BT_MismatchedDealloc;
+  mutable std::unique_ptr<BugType> BT_UndefinedArrayElementCount;
   mutable std::unique_ptr<BugType> BT_OffsetFree[CK_NumCheckKinds];
   mutable std::unique_ptr<BugType> BT_UseZerroAllocated[CK_NumCheckKinds];
 
@@ -702,6 +705,10 @@ private:
 
   void HandleFreeAlloca(CheckerContext &C, SVal ArgVal,
                         SourceRange Range) const;
+
+  void HandleUndefinedArrayElementCount(CheckerContext &C, SVal ArgVal,
+                                        const Expr *Init, SourceRange Range,
+                                        AllocationFamily Family) const;
 
   void HandleMismatchedDealloc(CheckerContext &C, SourceRange Range,
                                const Expr *DeallocExpr, const RefState *RS,
@@ -1496,11 +1503,46 @@ void MallocChecker::checkPostCall(const CallEvent &Call,
   }
 
   if (isStandardNewDelete(Call)) {
+    checkUndefinedNewArraySize(Call, C);
     checkCXXNewOrCXXDelete(Call, C);
     return;
   }
 
   checkOwnershipAttr(Call, C);
+}
+
+void MallocChecker::checkUndefinedNewArraySize(const CallEvent &Call,
+                                               CheckerContext &C) const {
+  const auto *NE = dyn_cast_or_null<CXXNewExpr>(Call.getOriginExpr());
+
+  if (!NE)
+    return;
+
+  if (NE->isArray()) {
+    auto *SizeEx = NE->getArraySize().value_or(nullptr);
+
+    assert(SizeEx && "new[] without a size!?");
+
+    // Prevent a crash if assertions are not enabled.
+    if (!SizeEx)
+      return;
+
+    const auto State = Call.getState();
+    const auto *LCtx = Call.getLocationContext();
+    const auto Ty = SizeEx->getType();
+
+    auto SizeVal = State->getSVal(SizeEx, LCtx);
+    if (Ty->isReferenceType()) {
+      if (const auto *MR = SizeVal.getAsRegion())
+        SizeVal = State->getSVal(SizeVal.getAsRegion());
+      else
+        SizeVal = UnknownVal{};
+    }
+
+    if (SizeVal.isUndef())
+      HandleUndefinedArrayElementCount(
+          C, SizeVal, SizeEx, SizeEx->getSourceRange(), AF_CXXNewArray);
+  }
 }
 
 // Performs a 0-sized allocations check.
@@ -1748,6 +1790,10 @@ ProgramStateRef MallocChecker::MallocMemAux(CheckerContext &C,
 
   // Fill the region with the initialization value.
   State = State->bindDefaultInitial(RetVal, Init, LCtx);
+
+  // If Size is somehow undefined at this point, this line prevent a crash.
+  if (Size.isUndef())
+    Size = UnknownVal();
 
   // Set the region's extent.
   State = setDynamicExtent(State, RetVal.getAsRegion(),
@@ -2278,6 +2324,57 @@ void MallocChecker::HandleFreeAlloca(CheckerContext &C, SVal ArgVal,
         *BT_FreeAlloca[*CheckKind],
         "Memory allocated by alloca() should not be deallocated", N);
     R->markInteresting(ArgVal.getAsRegion());
+    R->addRange(Range);
+    C.emitReport(std::move(R));
+  }
+}
+
+void MallocChecker::HandleUndefinedArrayElementCount(
+    CheckerContext &C, SVal ArgVal, const Expr *Init, SourceRange Range,
+    AllocationFamily Family) const {
+  if (!ChecksEnabled[CK_MallocChecker] && !ChecksEnabled[CK_NewDeleteChecker]) {
+    C.addSink();
+    return;
+  }
+
+  Optional<MallocChecker::CheckKind> CheckKind = getCheckIfTracked(Family);
+  if (!CheckKind)
+    return;
+
+  if (ExplodedNode *N = C.generateErrorNode()) {
+    if (!BT_UndefinedArrayElementCount)
+      BT_UndefinedArrayElementCount.reset(
+          new BugType(CheckNames[*CheckKind], "Undefined array element count",
+                      categories::MemoryError));
+
+    SmallString<100> buf;
+    llvm::raw_svector_ostream os(buf);
+
+    os << "Undefined element count! ";
+
+    // Try to be more informative...
+    os << "The value ";
+    Init = Init->IgnoreCasts();
+
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(Init))
+      os << "stored in '" << *DRE->getDecl() << "' ";
+    else if (const auto *CE = dyn_cast<CallExpr>(Init)) {
+      os << "returned ";
+
+      if (auto CalleeDecl = dyn_cast_or_null<NamedDecl>(CE->getCalleeDecl()))
+        os << "from '" << *CalleeDecl << "' ";
+      else
+        os << "'[*here*]' ";
+    } else
+      os << "'[*here*]' ";
+
+    os << "is ";
+    ArgVal.dumpToStream(os);
+    os << "!";
+
+    auto R = std::make_unique<PathSensitiveBugReport>(
+        *BT_UndefinedArrayElementCount, os.str(), N);
+    R->markInteresting(ArgVal);
     R->addRange(Range);
     C.emitReport(std::move(R));
   }

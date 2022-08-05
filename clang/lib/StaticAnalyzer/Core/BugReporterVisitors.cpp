@@ -1458,10 +1458,15 @@ PathDiagnosticPieceRef StoreSiteFinder::VisitNode(const ExplodedNode *Succ,
 
     // If this is an assignment expression, we can track the value
     // being assigned.
-    if (Optional<PostStmt> P = Succ->getLocationAs<PostStmt>())
+    if (Optional<PostStmt> P = Succ->getLocationAs<PostStmt>()) {
       if (const BinaryOperator *BO = P->getStmtAs<BinaryOperator>())
         if (BO->isAssignmentOp())
           InitE = BO->getRHS();
+
+      if (const CXXConstructExpr *CE = P->getStmtAs<CXXConstructExpr>()) {
+        InitE = CE;
+      }
+    }
 
     // If this is a call entry, the variable should be a parameter.
     // FIXME: Handle CXXThisRegion as well. (This is not a priority because
@@ -2397,33 +2402,41 @@ public:
 
     ProgramStateRef RVState = RVNode->getState();
     SVal V = RVState->getSValAsScalarOrLoc(E, RVNode->getLocationContext());
-    const auto *BO = dyn_cast<BinaryOperator>(E);
 
-    if (!BO || !BO->isMultiplicativeOp() || !V.isZeroConstant())
-      return {};
-
-    SVal RHSV = RVState->getSVal(BO->getRHS(), RVNode->getLocationContext());
-    SVal LHSV = RVState->getSVal(BO->getLHS(), RVNode->getLocationContext());
-
-    // Track both LHS and RHS of a multiplication.
     Tracker::Result CombinedResult;
     Tracker &Parent = getParentTracker();
-
-    const auto track = [&CombinedResult, &Parent, ExprNode, Opts](Expr *Inner) {
+    const auto track = [&CombinedResult, &Parent, ExprNode,
+                        Opts](const Expr *Inner) {
       CombinedResult.combineWith(Parent.track(Inner, ExprNode, Opts));
     };
 
-    if (BO->getOpcode() == BO_Mul) {
-      if (LHSV.isZeroConstant())
-        track(BO->getLHS());
-      if (RHSV.isZeroConstant())
-        track(BO->getRHS());
-    } else { // Track only the LHS of a division or a modulo.
-      if (LHSV.isZeroConstant())
-        track(BO->getLHS());
+    const auto *BO = dyn_cast<BinaryOperator>(E);
+    if (BO && BO->isMultiplicativeOp() && V.isZeroConstant()) {
+      SVal RHSV = RVState->getSVal(BO->getRHS(), RVNode->getLocationContext());
+      SVal LHSV = RVState->getSVal(BO->getLHS(), RVNode->getLocationContext());
+
+      // Track both LHS and RHS of a multiplication.
+      if (BO->getOpcode() == BO_Mul) {
+        if (LHSV.isZeroConstant())
+          track(BO->getLHS());
+        if (RHSV.isZeroConstant())
+          track(BO->getRHS());
+      } else { // Track only the LHS of a division or a modulo.
+        if (LHSV.isZeroConstant())
+          track(BO->getLHS());
+      }
+
+      return CombinedResult;
     }
 
-    return CombinedResult;
+    if (const auto *CE = dyn_cast<CXXConstructExpr>(E)) {
+      for (auto &&arg : CE->arguments())
+        track(arg);
+
+      return CombinedResult;
+    }
+
+    return {};
   }
 };
 

@@ -693,6 +693,7 @@ void test_smart_ptr_uaf() {
 
 void test_smart_ptr_leak() {
   OSObject *obj = new OSObject; // expected-note{{Operator 'new' returns an OSObject of type 'OSObject' with a +1 retain count}}
+  // expected-note@-1{{'obj' initialized here}}
   {
     OSObjectPtr p(obj); // expected-note{{Calling constructor for 'smart_ptr<OSObject>'}}
                         // expected-note@-1{{Returning from constructor for 'smart_ptr<OSObject>'}}

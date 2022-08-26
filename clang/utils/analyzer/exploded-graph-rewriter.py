@@ -180,9 +180,10 @@ class StoreBindingKey:
     def __init__(self, json_sk):
         self.kind = json_sk['kind']
         self.offset = json_sk['offset']
+        self.extent = json_sk['extent'] if 'extent' in json_sk else None
 
     def _key(self):
-        return (self.kind, self.offset)
+        return (self.kind, self.offset, self.extent)
 
     def __eq__(self, other):
         return self._key() == other._key()

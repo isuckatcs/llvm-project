@@ -48,24 +48,35 @@ private:
 
   llvm::PointerIntPair<const MemRegion *, 2> P;
   uint64_t Data;
+  uint64_t Extent;
+  bool CompareExtent = false;
 
   /// Create a key for a binding to region \p r, which has a symbolic offset
   /// from region \p Base.
-  explicit BindingKey(const SubRegion *r, const SubRegion *Base, Kind k)
-    : P(r, k | Symbolic), Data(reinterpret_cast<uintptr_t>(Base)) {
+  explicit BindingKey(const SubRegion *r, const SubRegion *Base, Kind k,
+                      uint64_t extent)
+      : P(r, k | Symbolic), Data(reinterpret_cast<uintptr_t>(Base)),
+        Extent(extent) {
     assert(r && Base && "Must have known regions.");
     assert(getConcreteOffsetRegion() == Base && "Failed to store base region");
   }
 
   /// Create a key for a binding at \p offset from base region \p r.
-  explicit BindingKey(const MemRegion *r, uint64_t offset, Kind k)
-    : P(r, k), Data(offset) {
+  explicit BindingKey(const MemRegion *r, uint64_t offset, Kind k,
+                      uint64_t extent)
+      : P(r, k), Data(offset), Extent(extent) {
     assert(r && "Must have known regions.");
     assert(getOffset() == offset && "Failed to store offset");
     assert((r == r->getBaseRegion() ||
             isa<ObjCIvarRegion, CXXDerivedObjectRegion>(r)) &&
            "Not a base");
   }
+
+  /// A helper constructor that makes it possible to compare keys while ignoring
+  /// the extent.
+  explicit BindingKey(const BindingKey &K, bool CompareExtent)
+      : P(K.P), Data(K.Data), Extent(K.Extent), CompareExtent(CompareExtent) {}
+
 public:
 
   bool isDirect() const { return P.getInt() & Direct; }
@@ -76,6 +87,8 @@ public:
     assert(!hasSymbolicOffset());
     return Data;
   }
+
+  uint64_t getExtent() const { return Extent; }
 
   const SubRegion *getConcreteOffsetRegion() const {
     assert(hasSymbolicOffset());
@@ -91,6 +104,7 @@ public:
   void Profile(llvm::FoldingSetNodeID& ID) const {
     ID.AddPointer(P.getOpaqueValue());
     ID.AddInteger(Data);
+    ID.AddInteger(Extent);
   }
 
   static BindingKey Make(const MemRegion *R, Kind k);
@@ -104,9 +118,14 @@ public:
   }
 
   bool operator==(const BindingKey &X) const {
+    if (CompareExtent && Extent != X.Extent)
+      return false;
+
     return P.getOpaqueValue() == X.P.getOpaqueValue() &&
            Data == X.Data;
   }
+
+  BindingKey compareWithExtent() const { return BindingKey(*this, true); }
 
   LLVM_DUMP_METHOD void dump() const;
 };
@@ -115,9 +134,10 @@ public:
 BindingKey BindingKey::Make(const MemRegion *R, Kind k) {
   const RegionOffset &RO = R->getAsOffset();
   if (RO.hasSymbolicOffset())
-    return BindingKey(cast<SubRegion>(R), cast<SubRegion>(RO.getRegion()), k);
+    return BindingKey(cast<SubRegion>(R), cast<SubRegion>(RO.getRegion()), k,
+                      R->getExtent());
 
-  return BindingKey(RO.getRegion(), RO.getOffset(), k);
+  return BindingKey(RO.getRegion(), RO.getOffset(), k, R->getExtent());
 }
 
 namespace llvm {
@@ -129,6 +149,9 @@ static inline raw_ostream &operator<<(raw_ostream &Out, BindingKey K) {
     Out << K.getOffset();
   else
     Out << "null";
+
+  Out << ", \"extent\": ";
+  Out << K.getExtent();
 
   return Out;
 }
@@ -277,7 +300,8 @@ RegionBindingsRef RegionBindingsRef::addBinding(BindingKey K, SVal V) const {
   ClusterBindings Cluster =
       (ExistingCluster ? *ExistingCluster : CBFactory->getEmptyMap());
 
-  ClusterBindings NewCluster = CBFactory->add(Cluster, K, V);
+  ClusterBindings NewCluster =
+      CBFactory->add(Cluster, K.compareWithExtent(), V);
   return add(Base, NewCluster);
 }
 
@@ -292,7 +316,16 @@ const SVal *RegionBindingsRef::lookup(BindingKey K) const {
   const ClusterBindings *Cluster = lookup(K.getBaseRegion());
   if (!Cluster)
     return nullptr;
-  return Cluster->lookup(K);
+
+  // Try looking up the value.
+  const auto *ResVal = Cluster->lookup(K.compareWithExtent());
+
+  // If we fail to find a value, assume there have been a cast and
+  // try to look it up again without comparing the region extent.
+  if (!ResVal)
+    ResVal = Cluster->lookup(K);
+
+  return ResVal;
 }
 
 const SVal *RegionBindingsRef::lookup(const MemRegion *R,

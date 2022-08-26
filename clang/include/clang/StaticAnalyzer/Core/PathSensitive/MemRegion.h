@@ -147,6 +147,8 @@ public:
   /// Compute the offset within the top level memory object.
   RegionOffset getAsOffset() const;
 
+  uint64_t getExtent() const;
+
   /// Get a string representation of a region for debug use.
   std::string getString() const;
 

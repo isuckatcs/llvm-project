@@ -1602,6 +1602,23 @@ RegionOffset MemRegion::getAsOffset() const {
   return *cachedOffset;
 }
 
+uint64_t MemRegion::getExtent() const {
+  const MemRegion *R = this;
+  uint64_t Extent = 0;
+
+  if (const auto *TVR = dyn_cast<TypedValueRegion>(R)) {
+    const auto Ty = TVR->getDesugaredValueType(getContext());
+    if (!Ty->isIncompleteType())
+      Extent = getContext().getTypeSize(Ty);
+  } else if (const auto *SR = dyn_cast<SymbolicRegion>(R)) {
+    const auto Ty = SR->getSymbol()->getType().getDesugaredType(getContext());
+    if (!Ty->isIncompleteType())
+      Extent = getContext().getTypeSize(Ty);
+  }
+
+  return Extent;
+}
+
 //===----------------------------------------------------------------------===//
 // BlockDataRegion
 //===----------------------------------------------------------------------===//

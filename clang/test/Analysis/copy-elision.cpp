@@ -57,13 +57,8 @@ public:
   C() : t(T(4)) {
     S s = {1, 2, 3};
     t.s = s;
-    // FIXME: Should be TRUE regardless of copy elision.
     clang_analyzer_eval(t.w == 4);
-#ifdef ELIDE
-    // expected-warning@-2{{TRUE}}
-#else
-    // expected-warning@-4{{UNKNOWN}}
-#endif
+    // expected-warning@-1{{TRUE}}
   }
 };
 

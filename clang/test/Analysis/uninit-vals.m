@@ -164,15 +164,11 @@ void PR14765_test(void) {
                                            // expected-note@-1{{TRUE}}
 
   testObj->origin = makePoint(0.0, 0.0);
-  if (testObj->size > 0) { ; } // expected-note{{Assuming field 'size' is <= 0}}
+  if (testObj->size > 0) { ; } // expected-note{{Field 'size' is <= 0}}
                                // expected-note@-1{{Taking false branch}}
 
-  // FIXME: Assigning to 'testObj->origin' kills the default binding for the
-  // whole region, meaning that we've forgotten that testObj->size should also
-  // default to 0. Tracked by <rdar://problem/12701038>.
-  // This should be TRUE.
-  clang_analyzer_eval(testObj->size == 0); // expected-warning{{UNKNOWN}}
-                                           // expected-note@-1{{UNKNOWN}}
+  clang_analyzer_eval(testObj->size == 0); // expected-warning{{TRUE}}
+                                           // expected-note@-1{{TRUE}}
 
   free(testObj);
 }
@@ -219,21 +215,17 @@ void PR14765_test_int(void) {
                                                // expected-note@-1{{TRUE}}
 
   testObj->origin = makeIntPoint(1, 2);
-  if (testObj->size > 0) { ; } // expected-note{{Assuming field 'size' is <= 0}}
+  if (testObj->size > 0) { ; } // expected-note{{Field 'size' is <= 0}}
                                // expected-note@-1{{Taking false branch}}
-                               // expected-note@-2{{Assuming field 'size' is <= 0}}
+                               // expected-note@-2{{Field 'size' is <= 0}}
                                // expected-note@-3{{Taking false branch}}
-                               // expected-note@-4{{Assuming field 'size' is <= 0}}
+                               // expected-note@-4{{Field 'size' is <= 0}}
                                // expected-note@-5{{Taking false branch}}
-                               // expected-note@-6{{Assuming field 'size' is <= 0}}
+                               // expected-note@-6{{Field 'size' is <= 0}}
                                // expected-note@-7{{Taking false branch}}
 
-  // FIXME: Assigning to 'testObj->origin' kills the default binding for the
-  // whole region, meaning that we've forgotten that testObj->size should also
-  // default to 0. Tracked by <rdar://problem/12701038>.
-  // This should be TRUE.
-  clang_analyzer_eval(testObj->size == 0); // expected-warning{{UNKNOWN}}
-                                           // expected-note@-1{{UNKNOWN}}
+  clang_analyzer_eval(testObj->size == 0); // expected-warning{{TRUE}}
+                                           // expected-note@-1{{TRUE}}
   clang_analyzer_eval(testObj->origin.x == 1); // expected-warning{{TRUE}}
                                                // expected-note@-1{{TRUE}}
   clang_analyzer_eval(testObj->origin.y == 2); // expected-warning{{TRUE}}

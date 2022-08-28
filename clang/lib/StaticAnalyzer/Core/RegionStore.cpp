@@ -49,7 +49,6 @@ private:
   llvm::PointerIntPair<const MemRegion *, 2> P;
   uint64_t Data;
   uint64_t Extent;
-  bool CompareExtent = false;
 
   /// Create a key for a binding to region \p r, which has a symbolic offset
   /// from region \p Base.
@@ -71,11 +70,6 @@ private:
             isa<ObjCIvarRegion, CXXDerivedObjectRegion>(r)) &&
            "Not a base");
   }
-
-  /// A helper constructor that makes it possible to compare keys while ignoring
-  /// the extent.
-  explicit BindingKey(const BindingKey &K, bool CompareExtent)
-      : P(K.P), Data(K.Data), Extent(K.Extent), CompareExtent(CompareExtent) {}
 
 public:
 
@@ -117,15 +111,29 @@ public:
     return Data < X.Data;
   }
 
-  bool operator==(const BindingKey &X) const {
-    if (CompareExtent && Extent != X.Extent)
+  bool isInsideOrEqual(const BindingKey &X) const {
+    if (hasSymbolicOffset() || X.hasSymbolicOffset())
       return false;
 
+    if (P.getOpaqueValue() != X.P.getOpaqueValue())
+      return false;
+
+    return getOffset() >= X.getOffset() &&
+           getOffset() <=
+               X.getOffset() +
+                   X.getExtent() && // The offset can be negative and in that
+                                    // case we might hit an overflow.
+           getOffset() + getExtent() <= X.getOffset() + X.getExtent();
+  }
+
+  bool isSameWithoutExtent(const BindingKey &X) const {
     return P.getOpaqueValue() == X.P.getOpaqueValue() &&
            Data == X.Data;
   }
 
-  BindingKey compareWithExtent() const { return BindingKey(*this, true); }
+  bool operator==(const BindingKey &X) const {
+    return isSameWithoutExtent(X) && Extent == X.Extent;
+  }
 
   LLVM_DUMP_METHOD void dump() const;
 };
@@ -166,7 +174,64 @@ void BindingKey::dump() const { llvm::errs() << *this; }
 // Actual Store type.
 //===----------------------------------------------------------------------===//
 
-typedef llvm::ImmutableMap<BindingKey, SVal>    ClusterBindings;
+class ClusterBindings : public llvm::ImmutableMap<BindingKey, SVal> {
+public:
+  ClusterBindings(const llvm::ImmutableMap<BindingKey, SVal> &m)
+      : llvm::ImmutableMap<BindingKey, SVal>(m) {}
+  ClusterBindings(llvm::ImmutableMap<BindingKey, SVal> &&m)
+      : llvm::ImmutableMap<BindingKey, SVal>(m) {}
+
+public:
+  const SVal *lookup(const BindingKey &K) const {
+    const auto lookupInBase = [this](const BindingKey &K) {
+      return llvm::ImmutableMap<BindingKey, SVal>::lookup(K);
+    };
+
+    // Try to lookup the value by comparing everything.
+    const auto *ResVal = lookupInBase(K);
+
+    // We might have failed to lookup the value because
+    // the extent of the current region is smaller than the extent
+    // of the stored region. In this case we try to find the
+    // smallest sub-region that contains the region we are searching
+    // for.
+    if (!ResVal) {
+      uint64_t upperBound = UINT64_MAX;
+      for (auto &&B : *this) {
+        if (K.isInsideOrEqual(B.first) &&
+            B.first.getOffset() == K.getOffset() &&
+            B.first.getOffset() + B.first.getExtent() <= upperBound) {
+          upperBound = B.first.getOffset() + B.first.getExtent();
+
+          ResVal = &B.second;
+        }
+      }
+    }
+
+    // If we still can't get a result, we fall back to our original
+    // lookup strategy, when only the region and the offset is compared
+    // and the first result is returned. This can still yield true
+    // positive results in cases like this:
+    //
+    //    unsigned u;
+    //    int *x;
+    //    (*((int *)(&x))) = (int)&u;
+    //    *x = 1; <-- the stored extent is 32, but the extent for x is 64
+    //    clang_analyzer_eval(u == 1); // expected-warning{{TRUE}}
+    //
+    if (!ResVal) {
+      for (auto &&B : *this) {
+        if (K.isSameWithoutExtent(B.first)) {
+          ResVal = &B.second;
+          break;
+        }
+      }
+    }
+
+    return ResVal;
+  }
+};
+
 typedef llvm::ImmutableMapRef<BindingKey, SVal> ClusterBindingsRef;
 typedef std::pair<BindingKey, SVal> BindingPair;
 
@@ -298,10 +363,11 @@ RegionBindingsRef RegionBindingsRef::addBinding(BindingKey K, SVal V) const {
 
   const ClusterBindings *ExistingCluster = lookup(Base);
   ClusterBindings Cluster =
-      (ExistingCluster ? *ExistingCluster : CBFactory->getEmptyMap());
+      (ExistingCluster
+           ? *ExistingCluster
+           : static_cast<ClusterBindings>(CBFactory->getEmptyMap()));
 
-  ClusterBindings NewCluster =
-      CBFactory->add(Cluster, K.compareWithExtent(), V);
+  ClusterBindings NewCluster = CBFactory->add(Cluster, K, V);
   return add(Base, NewCluster);
 }
 
@@ -318,12 +384,7 @@ const SVal *RegionBindingsRef::lookup(BindingKey K) const {
     return nullptr;
 
   // Try looking up the value.
-  const auto *ResVal = Cluster->lookup(K.compareWithExtent());
-
-  // If we fail to find a value, assume there have been a cast and
-  // try to look it up again without comparing the region extent.
-  if (!ResVal)
-    ResVal = Cluster->lookup(K);
+  const auto *ResVal = Cluster->lookup(K);
 
   return ResVal;
 }

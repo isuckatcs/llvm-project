@@ -1,4 +1,4 @@
-// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -std=c++17 -verify %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=debug.ExprInspection -std=c++17 -verify %s
 
 void clang_analyzer_eval(bool);
 
@@ -7,7 +7,7 @@ void array_value_a(void) {
   auto [a, b] = arr;
   arr[0] = 0;
 
-  int x = a; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(a); // expected-warning{{UNDEFINED}}
 }
 
 void array_value_b(void) {
@@ -16,8 +16,6 @@ void array_value_b(void) {
 
   clang_analyzer_eval(a == 1); // expected-warning{{TRUE}}
   clang_analyzer_eval(b == 2); // expected-warning{{TRUE}}
-
-  int x = a; // no-warning
 }
 
 void array_value_c(void) {
@@ -28,9 +26,7 @@ void array_value_c(void) {
   auto [a, b, c] = arr;
 
   clang_analyzer_eval(b == arr[1]); // expected-warning{{TRUE}}
-
-  int y = b; // no-warning
-  int x = a; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(a); // expected-warning{{UNDEFINED}}
 }
 
 void array_value_d(void) {
@@ -41,9 +37,7 @@ void array_value_d(void) {
   auto [a, b, c] = arr;
 
   clang_analyzer_eval(b == arr[1]); // expected-warning{{TRUE}}
-
-  int y = b; // no-warning
-  int x = c; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(c); // expected-warning{{UNDEFINED}}
 }
 
 void array_value_e(void) {
@@ -56,9 +50,6 @@ void array_value_e(void) {
 
   clang_analyzer_eval(i == 0); // expected-warning{{TRUE}}
   clang_analyzer_eval(j == 0); // expected-warning{{TRUE}}
-
-  int a = i; // no-warning
-  int b = j; // no-warning
 }
 
 void array_value_f(void) {
@@ -70,15 +61,15 @@ void array_value_f(void) {
   auto [i, j] = uninit;
 
   clang_analyzer_eval(i == 0); // expected-warning{{TRUE}}
-
-  int a = i; // no-warning
-  int b = j; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(j); // expected-warning{{UNDEFINED}}
 }
 
 void array_lref_a(void) {
   int arr[2];
   auto &[a, b] = arr;
-  int x = a; // expected-warning{{Assigned value is garbage or undefined}}
+
+  clang_analyzer_eval(a); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(b); // expected-warning{{UNDEFINED}}
 }
 
 void array_lref_b(void) {
@@ -87,8 +78,6 @@ void array_lref_b(void) {
 
   clang_analyzer_eval(a == 1); // expected-warning{{TRUE}}
   clang_analyzer_eval(b == 2); // expected-warning{{TRUE}}
-
-  int x = a; // no-warning
 }
 
 void array_lref_c(void) {
@@ -98,9 +87,7 @@ void array_lref_c(void) {
   arr[0] = 1;
 
   clang_analyzer_eval(a == 1); // expected-warning{{TRUE}}
-
-  int x = a; // no-warning
-  int y = b; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(b); // expected-warning{{UNDEFINED}}
 }
 
 void array_lref_d(void) {
@@ -111,9 +98,7 @@ void array_lref_d(void) {
   auto &[a, b, c] = arr;
 
   clang_analyzer_eval(b == 1); // expected-warning{{TRUE}}
-
-  int y = b; // no-warning
-  int x = a; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(a); // expected-warning{{UNDEFINED}}
 }
 
 void array_lref_e(void) {
@@ -124,9 +109,7 @@ void array_lref_e(void) {
   auto &[a, b, c] = arr;
 
   clang_analyzer_eval(b == 1); // expected-warning{{TRUE}}
-
-  int y = b; // no-warning
-  int x = c; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(c); // expected-warning{{UNDEFINED}}
 }
 
 void array_lref_f(void) {
@@ -139,9 +122,6 @@ void array_lref_f(void) {
 
   clang_analyzer_eval(i == 0); // expected-warning{{TRUE}}
   clang_analyzer_eval(j == 0); // expected-warning{{TRUE}}
-
-  int a = i; // no-warning
-  int b = j; // no-warning
 }
 
 void array_lref_g(void) {
@@ -153,15 +133,14 @@ void array_lref_g(void) {
   auto &[i, j] = uninit;
 
   clang_analyzer_eval(i == 0); // expected-warning{{TRUE}}
-
-  int a = i; // no-warning
-  int b = j; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(j); // expected-warning{{UNDEFINED}}
 }
 
 void array_rref_a(void) {
   int arr[2];
   auto &&[a, b] = arr;
-  int x = a; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(a); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(b); // expected-warning{{UNDEFINED}}
 }
 
 void array_rref_b(void) {
@@ -181,9 +160,7 @@ void array_rref_c(void) {
   arr[0] = 1;
 
   clang_analyzer_eval(a == 1); // expected-warning{{TRUE}}
-
-  int x = a; // no-warning
-  int y = b; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(b); // expected-warning{{UNDEFINED}}
 }
 
 void array_rref_d(void) {
@@ -194,22 +171,8 @@ void array_rref_d(void) {
   auto &&[a, b, c] = arr;
 
   clang_analyzer_eval(b == 1); // expected-warning{{TRUE}}
-
-  int y = b; // no-warning
-  int x = a; // expected-warning{{Assigned value is garbage or undefined}}
-}
-
-void array_rref_e(void) {
-  int arr[3];
-
-  arr[1] = 1;
-
-  auto &&[a, b, c] = arr;
-
-  clang_analyzer_eval(b == 1); // expected-warning{{TRUE}}
-
-  int y = b; // no-warning
-  int x = c; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(a); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(c); // expected-warning{{UNDEFINED}}
 }
 
 void array_rref_f(void) {
@@ -222,9 +185,6 @@ void array_rref_f(void) {
 
   clang_analyzer_eval(i == 0); // expected-warning{{TRUE}}
   clang_analyzer_eval(j == 0); // expected-warning{{TRUE}}
-
-  int a = i; // no-warning
-  int b = j; // no-warning
 }
 
 void array_rref_g(void) {
@@ -236,9 +196,7 @@ void array_rref_g(void) {
   auto &&[i, j] = uninit;
 
   clang_analyzer_eval(i == 0); // expected-warning{{TRUE}}
-
-  int a = i; // no-warning
-  int b = j; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(j); // expected-warning{{UNDEFINED}}
 }
 
 void array_change_a(void) {
@@ -276,7 +234,11 @@ void array_small_a(void) {
 
   auto [a, b, c, d, e] = arr;
 
-  int x = e; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(a); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(b); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(c); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(d); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(e); // expected-warning{{UNDEFINED}}
 }
 
 void array_big_a(void) {
@@ -284,13 +246,12 @@ void array_big_a(void) {
 
   auto [a, b, c, d, e, f] = arr;
 
-  // FIXME: These will be Undefined when we handle reading Undefined values from lazyCompoundVal.
-  clang_analyzer_eval(a == 1); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(b == 2); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(c == 3); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(d == 4); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(e == 5); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(f == 6); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(a); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(b); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(c); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(d); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(e); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(f); // expected-warning{{UNDEFINED}}
 }
 
 struct S {

@@ -299,7 +299,8 @@ void testLargeStructsNotCopiedPerField(void) {
   IntPoint b = a;
   extern void useInt(int);
   useInt(b.x); // no-warning
-  useInt(b.y); // no-warning
+  useInt(b.y); // expected-warning{{uninitialized}}
+               // expected-note@-1{{uninitialized}}
 }
 
 void testSmallStructInLargerStruct(void) {

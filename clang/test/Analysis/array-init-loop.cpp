@@ -1,4 +1,4 @@
-// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -std=c++17 -verify %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=debug.ExprInspection -std=c++17 -verify %s
 
 void clang_analyzer_eval(bool);
 
@@ -19,7 +19,11 @@ void array_uninit() {
 
   auto [a, b, c, d, e] = arr;
 
-  int x = e; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(a); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(b); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(c); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(d); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(e); // expected-warning{{UNDEFINED}}
 }
 
 void lambda_init() {
@@ -44,21 +48,20 @@ void lambda_init() {
 void lambda_uninit() {
   int arr[5];
 
-  // FIXME: These should be Undefined, but we fail to read Undefined from a lazyCompoundVal
-  int l = [arr] { return arr[0]; }();
-  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
+  int l = [arr] { return arr[0]; }(); 
+  clang_analyzer_eval(l); // expected-warning{{UNDEFINED}}
 
   l = [arr] { return arr[1]; }();
-  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(l); // expected-warning{{UNDEFINED}}
 
   l = [arr] { return arr[2]; }();
-  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(l); // expected-warning{{UNDEFINED}}
 
   l = [arr] { return arr[3]; }();
-  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(l); // expected-warning{{UNDEFINED}}
 
   l = [arr] { return arr[4]; }();
-  clang_analyzer_eval(l); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(l); // expected-warning{{UNDEFINED}}
 }
 
 struct S {
@@ -86,14 +89,11 @@ void copy_ctor_uninit() {
 
   S copy = orig;
 
-  // FIXME: These should be Undefined, but we fail to read Undefined from a lazyCompoundVal.
-  // If the struct is not considered a small struct, instead of a copy, we store a lazy compound value.
-  // As the struct has an array data member, it is not considered small.
-  clang_analyzer_eval(copy.arr[0]); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(copy.arr[1]); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(copy.arr[2]); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(copy.arr[3]); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(copy.arr[4]); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(copy.arr[0]); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(copy.arr[1]); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(copy.arr[2]); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(copy.arr[3]); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(copy.arr[4]); // expected-warning{{UNDEFINED}}
 }
 
 void move_ctor_init() {
@@ -118,12 +118,11 @@ void move_ctor_uninit() {
 
   S moved = (S &&) orig;
 
-  // FIXME: These should be Undefined, but we fail to read Undefined from a lazyCompoundVal.
-  clang_analyzer_eval(moved.arr[0]); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(moved.arr[1]); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(moved.arr[2]); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(moved.arr[3]); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(moved.arr[4]); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(moved.arr[0]); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(moved.arr[1]); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(moved.arr[2]); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(moved.arr[3]); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(moved.arr[4]); // expected-warning{{UNDEFINED}}
 }
 
 // The struct has a user defined copy and move ctor, which allow us to
@@ -168,7 +167,8 @@ struct S3_duplicate {
 void array_uninit_non_pod() {
   S3 arr[1];
 
-  auto [a] = arr; // expected-warning@159{{ in implicit constructor is garbage or undefined }}
+  auto [a] = arr;
+  clang_analyzer_eval(a.i); // expected-warning{{UNDEFINED}}
 }
 
 void lambda_init_non_pod() {
@@ -191,7 +191,8 @@ void lambda_init_non_pod() {
 void lambda_uninit_non_pod() {
   S3_duplicate arr[4];
 
-  int l = [arr] { return arr[3].i; }(); // expected-warning@164{{ in implicit constructor is garbage or undefined }}
+  int l = [arr] { return arr[3].i; }();
+  clang_analyzer_eval(l); // expected-warning{{UNDEFINED}}
 }
 
 // If this struct is being copy/move constructed by the implicit ctors, ArrayInitLoopExpr

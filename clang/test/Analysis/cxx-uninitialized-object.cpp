@@ -871,12 +871,13 @@ struct MultipleLambdaCapturesTest2 {
   Callable functor;
   int dontGetFilteredByNonPedanticMode = 0;
 
-  MultipleLambdaCapturesTest2(const Callable &functor, int) : functor(functor) {} // expected-warning{{1 uninitialized field}}
+  MultipleLambdaCapturesTest2(const Callable &functor, int) : functor(functor) {} // expected-warning{{2 uninitialized field}}
 };
 
 void fMultipleLambdaCapturesTest2() {
   int b1, b2 = 3, b3;
   auto equals = [b1, &b2, &b3](int a) { return a == b1 == b2 == b3; }; // expected-note{{uninitialized pointee 'this->functor./*captured variable*/b3'}}
+  // expected-note@-1{{uninitialized field 'this->functor./*captured variable*/b1'}}
   MultipleLambdaCapturesTest2<decltype(equals)>(equals, int());
 }
 

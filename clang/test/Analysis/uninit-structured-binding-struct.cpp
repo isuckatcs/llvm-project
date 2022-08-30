@@ -1,4 +1,4 @@
-// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -std=c++17 -verify %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=debug.ExprInspection -std=c++17 -verify %s
 
 void clang_analyzer_eval(bool);
 
@@ -12,7 +12,8 @@ void a(void) {
 
   auto [i, j] = tst;
 
-  int x = i; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(i); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(j); // expected-warning{{UNDEFINED}}
 }
 
 void b(void) {
@@ -22,7 +23,7 @@ void b(void) {
   auto [i, j] = tst;
 
   clang_analyzer_eval(i == 1); // expected-warning{{TRUE}}
-  int y = j;                   // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(j); // expected-warning{{UNDEFINED}}
 }
 
 void c(void) {
@@ -30,7 +31,8 @@ void c(void) {
 
   auto &[i, j] = tst;
 
-  int x = i; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(i); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(j); // expected-warning{{UNDEFINED}}
 }
 
 void d(void) {
@@ -43,7 +45,7 @@ void d(void) {
   i = 2;
   clang_analyzer_eval(tst.a == 2); // expected-warning{{TRUE}}
 
-  int y = j; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(j); // expected-warning{{UNDEFINED}}
 }
 
 void e(void) {
@@ -63,7 +65,8 @@ void f(void) {
 
   auto &&[i, j] = tst;
 
-  int x = i; // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(i); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(j); // expected-warning{{UNDEFINED}}
 }
 
 void g(void) {
@@ -73,7 +76,7 @@ void g(void) {
   auto &&[i, j] = tst;
 
   clang_analyzer_eval(i == 1); // expected-warning{{TRUE}}
-  int y = j;                   // expected-warning{{Assigned value is garbage or undefined}}
+  clang_analyzer_eval(j); // expected-warning{{UNDEFINED}}
 }
 
 struct s2 {
@@ -93,10 +96,8 @@ void h(void) {
 
   auto [i, j] = tst;
 
-  // FIXME: These should be undefined, but we have to fix
-  // reading undefined from lazy compound values first.
-  clang_analyzer_eval(i.a); // expected-warning{{UNKNOWN}}
-  clang_analyzer_eval(i.b); // expected-warning{{UNKNOWN}}
+  clang_analyzer_eval(i.a); // expected-warning{{UNDEFINED}}
+  clang_analyzer_eval(i.b); // expected-warning{{UNDEFINED}}
 
   clang_analyzer_eval(j.a == 1); // expected-warning{{TRUE}}
   clang_analyzer_eval(j.b == 2); // expected-warning{{TRUE}}

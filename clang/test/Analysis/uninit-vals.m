@@ -293,7 +293,7 @@ void testSmallStructsCopiedPerField(void) {
   IntPoint2D a;
   a.x = 0;
 
-  IntPoint2D b = a;
+  IntPoint2D b = a; // expected-note{{'b.y'}}
   extern void useInt(int);
   useInt(b.x); // no-warning
   useInt(b.y); // expected-warning{{uninitialized}}
@@ -372,11 +372,11 @@ void testSmallStructBitfieldsFirstUndef(void) {
   struct {
     int x : 4;
     int y : 4;
-  } a, b;
+  } a, b; // expected-note{{'a' initialized here}}
 
   a.y = 2;
 
-  b = a;
+  b = a; // expected-note{{Uninitialized value stored to 'b.x'}}
   clang_analyzer_eval(b.y == 2); // expected-warning{{TRUE}}
                                  // expected-note@-1{{TRUE}}
   clang_analyzer_eval(b.x == 1); // expected-warning{{garbage}}
@@ -387,11 +387,11 @@ void testSmallStructBitfieldsSecondUndef(void) {
   struct {
     int x : 4;
     int y : 4;
-  } a, b;
+  } a, b; // expected-note{{'a' initialized here}}
 
   a.x = 1;
 
-  b = a;
+  b = a; // expected-note{{Uninitialized value stored to 'b.y'}}
   clang_analyzer_eval(b.x == 1); // expected-warning{{TRUE}}
                                  // expected-note@-1{{TRUE}}
   clang_analyzer_eval(b.y == 2); // expected-warning{{garbage}}

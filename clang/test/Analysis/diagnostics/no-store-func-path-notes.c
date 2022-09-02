@@ -160,9 +160,9 @@ void partial_nested_initializer(C *c) {
 } // expected-note{{Returning without writing to 'c->b.y'}}
 
 int use_partial_nested_initializer(void) {
-  B localB;
+  B localB; // expected-note{{'localB' initialized here}}
   C localC;
-  localC.b = localB;
+  localC.b = localB; // expected-note{{Uninitialized value stored to 'localC.b.y'}}
   partial_nested_initializer(&localC); // expected-note{{Calling 'partial_nested_initializer'}}
                                        // expected-note@-1{{Returning from 'partial_nested_initializer'}}
   return localC.b.y;                   // expected-warning{{Undefined or garbage value returned to caller}}
@@ -170,8 +170,8 @@ int use_partial_nested_initializer(void) {
 }
 
 void test_subregion_assignment(C* c) {
-  B b;
-  c->b = b;
+  B b; // expected-note{{'b' initialized here}}
+  c->b = b; // expected-note{{Uninitialized value stored to 'c.b.x'}}
 }
 
 int use_subregion_assignment(void) {

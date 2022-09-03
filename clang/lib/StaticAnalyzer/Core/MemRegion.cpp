@@ -1604,8 +1604,16 @@ RegionOffset MemRegion::getAsOffset() const {
 
 uint64_t MemRegion::getExtent() const {
   const MemRegion *R = this;
-  uint64_t Extent = 0;
 
+  // Prior to this patch we assumed the
+  // extent of all region is infinite, so in case
+  // we fail to find the extent, we default to
+  // "infinity".
+  uint64_t Extent = UINT64_MAX;
+
+  // FIXME: Handle other cases as well as bitsets.
+  // For 'unsigned b : 1' we still return 32, however
+  // this might be incorrect.
   if (const auto *TVR = dyn_cast<TypedValueRegion>(R)) {
     const auto Ty = TVR->getDesugaredValueType(getContext());
     if (!Ty->isIncompleteType())

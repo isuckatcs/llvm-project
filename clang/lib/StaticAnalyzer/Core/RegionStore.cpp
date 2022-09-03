@@ -108,7 +108,13 @@ public:
       return true;
     if (P.getOpaqueValue() > X.P.getOpaqueValue())
       return false;
-    return Data < X.Data;
+
+    if (Data < X.Data)
+      return true;
+    if (Data > X.Data)
+      return false;
+
+    return Extent < X.Extent;
   }
 
   bool isInsideOrEqual(const BindingKey &X) const {
@@ -196,29 +202,25 @@ public:
     // smallest sub-region that contains the region we are searching
     // for.
     if (!ResVal) {
+      uint64_t lowerBound = 0;
       uint64_t upperBound = UINT64_MAX;
       for (auto &&B : *this) {
-        if (K.isInsideOrEqual(B.first) &&
-            B.first.getOffset() == K.getOffset() &&
+        if (K.isInsideOrEqual(B.first) && B.first.getOffset() >= lowerBound &&
             B.first.getOffset() + B.first.getExtent() <= upperBound) {
-          upperBound = B.first.getOffset() + B.first.getExtent();
+          // FIXME: Handle other overlapping regions as well.
+          if (isa<nonloc::LazyCompoundVal>(B.second)) {
+            upperBound = B.first.getOffset() + B.first.getExtent();
+            lowerBound = B.first.getOffset();
 
-          ResVal = &B.second;
+            ResVal = &B.second;
+          }
         }
       }
     }
 
     // If we still can't get a result, we fall back to our original
     // lookup strategy, when only the region and the offset is compared
-    // and the first result is returned. This can still yield true
-    // positive results in cases like this:
-    //
-    //    unsigned u;
-    //    int *x;
-    //    (*((int *)(&x))) = (int)&u;
-    //    *x = 1; <-- the stored extent is 32, but the extent for x is 64
-    //    clang_analyzer_eval(u == 1); // expected-warning{{TRUE}}
-    //
+    // and the first result is returned.
     if (!ResVal) {
       for (auto &&B : *this) {
         if (K.isSameWithoutExtent(B.first)) {

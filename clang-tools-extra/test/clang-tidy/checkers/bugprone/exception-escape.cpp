@@ -101,6 +101,84 @@ void throw_catch_rethrow_the_rest(int n) noexcept {
   }
 }
 
+void throw_catch_pointer_c() noexcept {
+  // CHECK-MESSAGES-NOT: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_catch_pointer_c' which should not throw exceptions
+  try {
+    int a = 1;
+    throw &a;
+  } catch(const int *) {}
+}
+
+void throw_catch_pointer_v() noexcept {
+  // CHECK-MESSAGES-NOT: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_catch_pointer_v' which should not throw exceptions
+  try {
+    int a = 1;
+    throw &a;
+  } catch(volatile int *) {}
+}
+
+void throw_catch_pointer_cv() noexcept {
+  // CHECK-MESSAGES-NOT: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_catch_pointer_cv' which should not throw exceptions
+  try {
+    int a = 1;
+    throw &a;
+  } catch(const volatile int *) {}
+}
+
+void throw_c_catch_pointer() noexcept {
+  // CHECK-MESSAGES: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_c_catch_pointer' which should not throw exceptions
+  try {
+    int a = 1;
+    const int *p = &a;
+    throw p;
+  } catch(int *) {}
+}
+
+void throw_c_catch_pointer_v() noexcept {
+  // CHECK-MESSAGES: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_c_catch_pointer_v' which should not throw exceptions
+  try {
+    int a = 1;
+    const int *p = &a;
+    throw p;
+  } catch(volatile int *) {}
+}
+
+void throw_v_catch_pointer() noexcept {
+  // CHECK-MESSAGES: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_v_catch_pointer' which should not throw exceptions
+  try {
+    int a = 1;
+    volatile int *p = &a;
+    throw p;
+  } catch(int *) {}
+}
+
+void throw_v_catch_pointer_c() noexcept {
+  // CHECK-MESSAGES: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_v_catch_pointer_c' which should not throw exceptions
+  try {
+    int a = 1;
+    volatile int *p = &a;
+    throw p;
+  } catch(const int *) {}
+}
+
+void throw_cv_catch_pointer_c() noexcept {
+  // CHECK-MESSAGES: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_cv_catch_pointer_c' which should not throw exceptions
+  try {
+    int a = 1;
+    const volatile int *p = &a;
+    throw p;
+  } catch(const int *) {}
+}
+
+void throw_cv_catch_pointer_v() noexcept {
+  // CHECK-MESSAGES: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_cv_catch_pointer_v' which should not throw exceptions
+  try {
+    int a = 1;
+    const volatile int *p = &a;
+    throw p;
+  } catch(volatile int *) {}
+}
+
 class base {};
 class derived: public base {};
 
@@ -109,6 +187,25 @@ void throw_derived_catch_base() noexcept {
   try {
     throw derived();
   } catch(base &) {
+  }
+}
+
+void throw_derived_catch_base_ptr_c() noexcept {
+  // CHECK-MESSAGES-NOT: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_derived_catch_base_ptr_c' which should not throw exceptions
+  try {
+    derived d;
+    throw &d; 
+  } catch(const base *) {
+  }
+}
+
+void throw_derived_catch_base_ptr() noexcept {
+  // CHECK-MESSAGES: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_derived_catch_base_ptr' which should not throw exceptions
+  try {
+    derived d;
+    const derived *p = &d;
+    throw p; 
+  } catch(base *) {
   }
 }
 

@@ -61,6 +61,27 @@ bool ExceptionAnalyzer::ExceptionInfo::filterByCatch(const Type *BaseClass) {
   for (const Type *T : ThrownExceptions) {
     if (T == BaseClass || isBaseOf(T, BaseClass))
       TypesToDelete.push_back(T);
+    else if (T->isPointerType() && BaseClass->isPointerType()) {
+      auto BPointeeTy = BaseClass->getAs<PointerType>()->getPointeeType();
+      auto TPointeeTy = T->getAs<PointerType>()->getPointeeType();
+
+      auto BPointeeUQTy = BPointeeTy->getUnqualifiedDesugaredType();
+      auto TPointeeUQTy = TPointeeTy->getUnqualifiedDesugaredType();
+
+      auto BCVR = BPointeeTy.getCVRQualifiers();
+      auto TCVR = TPointeeTy.getCVRQualifiers();
+
+      // In case the unqualified types are the same, the exception will be
+      // caught if
+      //  1.) the thrown type doesn't have qualifiers
+      //  2.) the handler has the same qualifiers as the thrown type
+      //  3.) the handle has more qualifiers than the thrown type
+      if ((BPointeeUQTy == TPointeeUQTy ||
+           isBaseOf(TPointeeUQTy, BPointeeUQTy)) &&
+          (TCVR == 0 || (BCVR ^ TCVR) == 0 || (BCVR & TCVR) > BCVR)) {
+        TypesToDelete.push_back(T);
+      }
+    }
   }
 
   for (const Type *T : TypesToDelete)

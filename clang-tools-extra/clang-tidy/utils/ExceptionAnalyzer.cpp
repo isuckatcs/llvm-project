@@ -56,29 +56,105 @@ static bool isBaseOf(const Type *DerivedType, const Type *BaseType) {
       [BaseClass](const CXXRecordDecl *Cur) { return Cur != BaseClass; });
 }
 
+// Checks if T1 is convertible to T2.
+static bool isMultiLevelConvertiblePointer(QualType P1, QualType P2,
+                                           unsigned CurrentLevel = 0,
+                                           bool IsP2ConstSoFar = false) {
+  if (CurrentLevel == 0) {
+    assert(P1->isPointerType() && "P1 is not a pointer type");
+    assert(P2->isPointerType() && "P2 is not a pointer type");
+
+    QualType P1PointeeTy = P1->getAs<PointerType>()->getPointeeType();
+    QualType P2PointeeTy = P2->getAs<PointerType>()->getPointeeType();
+
+    if (P1PointeeTy->isArrayType() && P2PointeeTy->isArrayType()) {
+      P1PointeeTy = P1PointeeTy->getAsArrayTypeUnsafe()->getElementType();
+      P2PointeeTy = P2PointeeTy->getAsArrayTypeUnsafe()->getElementType();
+    }
+
+    // If the pointer is not a multi-level pointer, perform
+    // conversion checks.
+    if (!P1PointeeTy->isPointerType() || !P2PointeeTy->isPointerType()) {
+      const Type *P1PointeeUQTy = P1PointeeTy->getUnqualifiedDesugaredType();
+      const Type *P2PointeeUQTy = P2PointeeTy->getUnqualifiedDesugaredType();
+
+      Qualifiers P1Quals = P1PointeeTy.getQualifiers();
+      Qualifiers P2Quals = P2PointeeTy.getQualifiers();
+
+      return (P1PointeeUQTy == P2PointeeUQTy ||
+              isBaseOf(P1PointeeUQTy, P2PointeeUQTy)) &&
+             P2Quals.isStrictSupersetOf(P1Quals);
+    }
+
+    return isMultiLevelConvertiblePointer(P1PointeeTy, P2PointeeTy,
+                                          CurrentLevel + 1, true);
+  }
+
+  bool convertible = true;
+
+  if (P1->isArrayType() && P2->isArrayType()) {
+    // At every level that array type is involved in, at least
+    // one array type has unknown bound, or both array types
+    // have same size.
+    if (P1->isConstantArrayType() && P2->isConstantArrayType())
+      convertible &=
+          cast<ConstantArrayType>(P1->getAsArrayTypeUnsafe())->getSize() ==
+          cast<ConstantArrayType>(P2->getAsArrayTypeUnsafe())->getSize();
+
+    // If there is an array type of unknown bound at some level
+    // (other than level zero) of P1, there is an array type of
+    // unknown bound in the same level of P2;
+    if (P1->isIncompleteArrayType())
+      convertible &= P2->isIncompleteArrayType();
+
+    // ... [or there is an array type of known bound in P1 and
+    // an array type of unknown bound in P2 (since C++20)] then
+    // there must be a 'const' at every single level (other than
+    // level zero) of P2 up until the current level.
+    if (P1->isConstantArrayType() && P2->isIncompleteArrayType())
+      convertible &= IsP2ConstSoFar;
+
+    P1 = P1->getAsArrayTypeUnsafe()->getElementType();
+    P2 = P2->getAsArrayTypeUnsafe()->getElementType();
+  }
+
+  // If at the current level P2 is more cv-qualified than P1 [...],
+  // then there must be a 'const' at every single level (other than level zero)
+  // of P2 up until the current level
+  if (P2.getQualifiers().isStrictSupersetOf(P1.getQualifiers()))
+    convertible &= IsP2ConstSoFar;
+
+  // If the pointers don't have the same amount of levels, they are not
+  // convertible to each other.
+  if (!P1->isPointerType() || !P2->isPointerType())
+    return convertible && P1->getUnqualifiedDesugaredType() ==
+                              P2->getUnqualifiedDesugaredType();
+
+  // If the current level (other than level zero) in P1 is 'const' qualified,
+  // the same level in P2 must also be 'const' qualified.
+  if (P1.isConstQualified())
+    convertible &= P2.isConstQualified();
+
+  // If the current level (other than level zero) in P1 is 'volatile' qualified,
+  // the same level in P2 must also be 'volatile' qualified.
+  if (P1.isVolatileQualified())
+    convertible &= P2.isVolatileQualified();
+
+  IsP2ConstSoFar &= P2.isConstQualified();
+  return convertible && isMultiLevelConvertiblePointer(
+                            P1->getAs<PointerType>()->getPointeeType(),
+                            P2->getAs<PointerType>()->getPointeeType(),
+                            CurrentLevel + 1, IsP2ConstSoFar);
+}
+
 bool ExceptionAnalyzer::ExceptionInfo::filterByCatch(const Type *BaseClass) {
   llvm::SmallVector<const Type *, 8> TypesToDelete;
   for (const Type *T : ThrownExceptions) {
     if (T == BaseClass || isBaseOf(T, BaseClass))
       TypesToDelete.push_back(T);
     else if (T->isPointerType() && BaseClass->isPointerType()) {
-      QualType BPointeeTy = BaseClass->getAs<PointerType>()->getPointeeType();
-      QualType TPointeeTy = T->getAs<PointerType>()->getPointeeType();
-
-      const Type *BPointeeUQTy = BPointeeTy->getUnqualifiedDesugaredType();
-      const Type *TPointeeUQTy = TPointeeTy->getUnqualifiedDesugaredType();
-
-      unsigned BCVR = BPointeeTy.getCVRQualifiers();
-      unsigned TCVR = TPointeeTy.getCVRQualifiers();
-
-      // In case the unqualified types are the same, the exception will be
-      // caught if
-      //  1.) the thrown type doesn't have qualifiers
-      //  2.) the handler has the same qualifiers as the thrown type
-      //  3.) the handle has more qualifiers than the thrown type
-      if ((BPointeeUQTy == TPointeeUQTy ||
-           isBaseOf(TPointeeUQTy, BPointeeUQTy)) &&
-          (TCVR == 0 || (BCVR ^ TCVR) == 0 || (BCVR & TCVR) > BCVR)) {
+      if (isMultiLevelConvertiblePointer(QualType(T, 0),
+                                         QualType(BaseClass, 0))) {
         TypesToDelete.push_back(T);
       }
     }

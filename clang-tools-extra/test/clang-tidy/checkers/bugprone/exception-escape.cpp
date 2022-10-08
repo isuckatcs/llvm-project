@@ -102,7 +102,6 @@ void throw_catch_rethrow_the_rest(int n) noexcept {
 }
 
 void throw_catch_pointer_c() noexcept {
-  // CHECK-MESSAGES-NOT: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_catch_pointer_c' which should not throw exceptions
   try {
     int a = 1;
     throw &a;
@@ -110,7 +109,6 @@ void throw_catch_pointer_c() noexcept {
 }
 
 void throw_catch_pointer_v() noexcept {
-  // CHECK-MESSAGES-NOT: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_catch_pointer_v' which should not throw exceptions
   try {
     int a = 1;
     throw &a;
@@ -118,12 +116,56 @@ void throw_catch_pointer_v() noexcept {
 }
 
 void throw_catch_pointer_cv() noexcept {
-  // CHECK-MESSAGES-NOT: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_catch_pointer_cv' which should not throw exceptions
   try {
     int a = 1;
     throw &a;
   } catch(const volatile int *) {}
 }
+
+void throw_catch_multi_ptr_1() noexcept {
+  // CHECK-MESSAGES: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_catch_multi_ptr_1' which should not throw exceptions
+  try {
+    char **p = 0;
+    throw p;
+  } catch (const char **) {
+  }
+}
+
+void throw_catch_multi_ptr_2() noexcept {
+  try {
+    char **p = 0;
+    throw p;
+  } catch (const char *const *) {
+  }
+}
+
+void throw_catch_multi_ptr_3() noexcept {
+  try {
+    char **p = 0;
+    throw p;
+  } catch (volatile char *const *) {
+  }
+}
+
+void throw_catch_multi_ptr_4() noexcept {
+  try {
+    char **p = 0;
+    throw p;
+  } catch (volatile const char *const *) {
+  }
+}
+
+// FIXME: In this case 'a' is convertible to the handler and should be caught
+// but in reality it's thrown. Note that clang doesn't report a warning for 
+// this either.
+void throw_catch_multi_ptr_5() noexcept {
+  try {
+    double *a[2][3];
+    throw a;
+  } catch (double *(*)[3]) {
+  }
+}
+
 
 void throw_c_catch_pointer() noexcept {
   // CHECK-MESSAGES: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_c_catch_pointer' which should not throw exceptions
@@ -191,7 +233,6 @@ void throw_derived_catch_base() noexcept {
 }
 
 void throw_derived_catch_base_ptr_c() noexcept {
-  // CHECK-MESSAGES-NOT: :[[@LINE-1]]:6: warning: an exception may be thrown in function 'throw_derived_catch_base_ptr_c' which should not throw exceptions
   try {
     derived d;
     throw &d; 

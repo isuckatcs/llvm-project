@@ -86,6 +86,7 @@ add_clang_library(clangTidyBugproneModule STATIC
   TerminatingContinueCheck.cpp
   ThrowKeywordMissingCheck.cpp
   TooSmallLoopVariableCheck.cpp
+  TrueMacroCheck.cpp
   UncheckedOptionalAccessCheck.cpp
   UndefinedMemoryManipulationCheck.cpp
   UndelegatedConstructorCheck.cpp

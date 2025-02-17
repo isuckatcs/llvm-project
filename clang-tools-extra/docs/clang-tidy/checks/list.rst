@@ -153,6 +153,7 @@ Clang-Tidy Checks
    :doc:`bugprone-terminating-continue <bugprone/terminating-continue>`, "Yes"
    :doc:`bugprone-throw-keyword-missing <bugprone/throw-keyword-missing>`,
    :doc:`bugprone-too-small-loop-variable <bugprone/too-small-loop-variable>`,
+   :doc:`bugprone-true-macro <bugprone/true-macro>`, "Yes"
    :doc:`bugprone-unchecked-optional-access <bugprone/unchecked-optional-access>`,
    :doc:`bugprone-undefined-memory-manipulation <bugprone/undefined-memory-manipulation>`,
    :doc:`bugprone-undelegated-constructor <bugprone/undelegated-constructor>`,

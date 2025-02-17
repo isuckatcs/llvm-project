@@ -85,6 +85,7 @@
 #include "TerminatingContinueCheck.h"
 #include "ThrowKeywordMissingCheck.h"
 #include "TooSmallLoopVariableCheck.h"
+#include "TrueMacroCheck.h"
 #include "UncheckedOptionalAccessCheck.h"
 #include "UndefinedMemoryManipulationCheck.h"
 #include "UndelegatedConstructorCheck.h"
@@ -247,6 +248,8 @@ public:
         "bugprone-throw-keyword-missing");
     CheckFactories.registerCheck<TooSmallLoopVariableCheck>(
         "bugprone-too-small-loop-variable");
+    CheckFactories.registerCheck<TrueMacroCheck>(
+        "bugprone-true-macro");
     CheckFactories.registerCheck<UncheckedOptionalAccessCheck>(
         "bugprone-unchecked-optional-access");
     CheckFactories.registerCheck<UndefinedMemoryManipulationCheck>(

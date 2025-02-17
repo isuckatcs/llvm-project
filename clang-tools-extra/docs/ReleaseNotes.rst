@@ -91,6 +91,11 @@ Improvements to clang-tidy
 New checks
 ^^^^^^^^^^
 
+- New :doc:`bugprone-true-macro
+  <clang-tidy/checks/bugprone/true-macro>` check.
+
+  FIXME: Write a short description.
+
 New check aliases
 ^^^^^^^^^^^^^^^^^
 

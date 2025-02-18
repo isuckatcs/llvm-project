@@ -7,11 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "TrueMacroCheck.h"
-#include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Lex/MacroInfo.h"
 #include "clang/Lex/PPCallbacks.h"
 #include "clang/Lex/Preprocessor.h"
-#include <iostream>
 
 using namespace clang::ast_matchers;
 
@@ -22,11 +20,20 @@ class MacroCallback : public PPCallbacks {
   static constexpr const char *TrueMacroSpelling = "true";
 
 public:
-  MacroCallback(TrueMacroCheck *Check, const SourceManager &SM,
-                Preprocessor *PP)
-      : Check(Check), SM(&SM), PP(PP) {}
+  MacroCallback(TrueMacroCheck *Check, Preprocessor *PP)
+      : Check(Check), PP(PP) {}
   void MacroDefined(const Token &MacroNameTok,
                     const MacroDirective *MD) override {
+    if (TrueDefined)
+      return;
+
+    const MacroInfo *MI = MD->getMacroInfo();
+    for (const Token &Tok : MI->tokens()) {
+      if (PP->getSpelling(Tok) == TrueMacroSpelling)
+        emitDiagnostics(Tok.getLocation(),
+                        {Tok.getLocation(), Tok.getEndLoc()});
+    }
+
     if (PP->getSpelling(MacroNameTok) == TrueMacroSpelling)
       TrueDefined = true;
   }
@@ -44,12 +51,32 @@ public:
         Lexer::getSourceText(CharSourceRange::getTokenRange(ConditionRange),
                              PP->getSourceManager(), PP->getLangOpts());
 
-    for (auto &&Identifier : identifiersInCondition(Condition))
-      std::cout << Identifier.str() << ' ' << Identifier.size() << '\n';
+    if (!TrueDefined && Condition == TrueMacroSpelling) {
+      emitDiagnostics(ConditionRange.getBegin(), ConditionRange);
+      return;
+    }
+
+    for (auto &&Identifier : identifiersInCondition(Condition)) {
+      if (!TrueDefined && Identifier == TrueMacroSpelling) {
+        emitDiagnostics(Loc, {}, true);
+        break;
+      }
+    }
   }
 
 private:
-  void emitDiagnostic() {}
+  void emitDiagnostics(SourceLocation Loc, SourceRange ReplaceRange,
+                       bool InCondition = false) {
+    DiagnosticBuilder Builder =
+        Check->diag(Loc, "in C 'true'%select{| in the condition}0 is treated "
+                         "as an undefined "
+                         "macro and evaluates to a falsy value; "
+                         "consider replacing it with '1'")
+        << InCondition;
+
+    if (!InCondition)
+      Builder << FixItHint::CreateReplacement(ReplaceRange, "1");
+  }
 
   std::vector<StringRef> identifiersInCondition(StringRef Condition) {
     const static auto Start = [](char C) {
@@ -83,7 +110,6 @@ private:
   bool TrueDefined = false;
 
   TrueMacroCheck *Check;
-  const SourceManager *SM;
   Preprocessor *PP;
 };
 } // namespace
@@ -91,7 +117,7 @@ private:
 void TrueMacroCheck::registerPPCallbacks(const SourceManager &SM,
                                          Preprocessor *PP,
                                          Preprocessor *ModuleExpanderPP) {
-  PP->addPPCallbacks(std::make_unique<MacroCallback>(this, SM, PP));
+  PP->addPPCallbacks(std::make_unique<MacroCallback>(this, PP));
 }
 
 } // namespace clang::tidy::bugprone

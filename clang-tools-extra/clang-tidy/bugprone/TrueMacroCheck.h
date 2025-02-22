@@ -13,6 +13,11 @@
 
 namespace clang::tidy::bugprone {
 
+/// This check gives a warning if `true` is used in the preprocessor when not
+/// defined in C.
+///
+/// For the user-facing documentation see:
+/// http://clang.llvm.org/extra/clang-tidy/checks/bugprone/true-macro.html
 class TrueMacroCheck : public ClangTidyCheck {
 public:
   TrueMacroCheck(StringRef Name, ClangTidyContext *Context)

@@ -94,7 +94,7 @@ New checks
 - New :doc:`bugprone-true-macro
   <clang-tidy/checks/bugprone/true-macro>` check.
 
-  FIXME: Write a short description.
+  This check gives a warning if ``true`` is used in the preprocessor when not defined in C.
 
 New check aliases
 ^^^^^^^^^^^^^^^^^

@@ -248,8 +248,7 @@ public:
         "bugprone-throw-keyword-missing");
     CheckFactories.registerCheck<TooSmallLoopVariableCheck>(
         "bugprone-too-small-loop-variable");
-    CheckFactories.registerCheck<TrueMacroCheck>(
-        "bugprone-true-macro");
+    CheckFactories.registerCheck<TrueMacroCheck>("bugprone-true-macro");
     CheckFactories.registerCheck<UncheckedOptionalAccessCheck>(
         "bugprone-unchecked-optional-access");
     CheckFactories.registerCheck<UndefinedMemoryManipulationCheck>(

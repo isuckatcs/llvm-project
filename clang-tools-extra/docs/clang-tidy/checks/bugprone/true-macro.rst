@@ -9,6 +9,7 @@ while in C, ``true`` is not treated as a special keyword by the preprocessor, so
 The following snippet returns ``1`` in C++, but ``0`` in C.
 
 .. code-block:: c++
+
     int main() {
     #if true
       return 1;
@@ -17,4 +18,5 @@ The following snippet returns ``1`` in C++, but ``0`` in C.
     #endif
     }
 
-The check also offers fix-it hints.
+The check identifies such cases, when ``true`` is used without being defined first and also offers fix-its in 
+some cases.

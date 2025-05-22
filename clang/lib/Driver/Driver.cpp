@@ -242,12 +242,12 @@ Driver::Driver(StringRef ClangExecutable, StringRef TargetTriple,
                DiagnosticsEngine &Diags, std::string Title,
                IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS)
     : Diags(Diags), VFS(std::move(VFS)), Mode(GCCMode),
-      SaveTemps(SaveTempsNone), BitcodeEmbed(EmbedNone),
-      Offload(OffloadHostDevice), CXX20HeaderType(HeaderMode_None),
-      ModulesModeCXX20(false), LTOMode(LTOK_None),
-      ClangExecutable(ClangExecutable), SysRoot(DEFAULT_SYSROOT),
-      DriverTitle(Title), CCCPrintBindings(false), CCPrintOptions(false),
-      CCLogDiagnostics(false), CCGenDiagnostics(false),
+      SaveTemps(SaveTempsNone), EmitSummaries(EmitSummariesNone),
+      BitcodeEmbed(EmbedNone), Offload(OffloadHostDevice),
+      CXX20HeaderType(HeaderMode_None), ModulesModeCXX20(false),
+      LTOMode(LTOK_None), ClangExecutable(ClangExecutable),
+      SysRoot(DEFAULT_SYSROOT), DriverTitle(Title), CCCPrintBindings(false),
+      CCPrintOptions(false), CCLogDiagnostics(false), CCGenDiagnostics(false),
       CCPrintProcessStats(false), CCPrintInternalStats(false),
       TargetTriple(TargetTriple), Saver(Alloc), PrependArg(nullptr),
       CheckInputsExist(true), ProbePrecompiled(true),
@@ -1643,6 +1643,13 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
                     .Case("cwd", SaveTempsCwd)
                     .Case("obj", SaveTempsObj)
                     .Default(SaveTempsCwd);
+  }
+
+  if (const Arg *A = Args.getLastArg(options::OPT_emit_summaries_EQ)) {
+    EmitSummaries = llvm::StringSwitch<EmitSummariesMode>(A->getValue())
+                        .Case("cwd", EmitSummariesCwd)
+                        .Case("obj", EmitSummariesObj)
+                        .Default(EmitSummariesCwd);
   }
 
   if (const Arg *A = Args.getLastArg(options::OPT_offload_host_only,

@@ -5941,6 +5941,15 @@ def save_temps : Flag<["-", "--"], "save-temps">, Flags<[NoXarchOption]>,
   Visibility<[ClangOption, FlangOption, FC1Option]>,
   Alias<save_temps_EQ>, AliasArgs<["cwd"]>,
   HelpText<"Alias for --save-temps=cwd">;
+def emit_summaries_EQ : Joined<["-", "--"], "emit-summaries=">, Flags<[NoXarchOption]>,
+  Visibility<[ClangOption, CC1Option]>,
+  HelpText<"Save summaries about the different functions. <arg> can be set to 'cwd' for "
+  "current working directory, or 'obj' which will save temporary files in the "
+  "same directory as the final output file">;
+def emit_summaries : Flag<["-", "--"], "emit-summaries">, Flags<[NoXarchOption]>,
+  Visibility<[ClangOption]>,
+  Alias<emit_summaries_EQ>, AliasArgs<["cwd"]>,
+  HelpText<"Alias for --emit-summaries=cwd">;
 def save_stats_EQ : Joined<["-", "--"], "save-stats=">, Flags<[NoXarchOption]>,
   HelpText<"Save llvm statistics.">;
 def save_stats : Flag<["-", "--"], "save-stats">, Flags<[NoXarchOption]>,

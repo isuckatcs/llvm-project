@@ -116,6 +116,12 @@ class Driver {
     SaveTempsObj
   } SaveTemps;
 
+  enum EmitSummariesMode {
+    EmitSummariesNone,
+    EmitSummariesCwd,
+    EmitSummariesObj
+  } EmitSummaries;
+
   enum BitcodeEmbedMode {
     EmbedNone,
     EmbedMarker,
@@ -453,6 +459,11 @@ public:
 
   bool isSaveTempsEnabled() const { return SaveTemps != SaveTempsNone; }
   bool isSaveTempsObj() const { return SaveTemps == SaveTempsObj; }
+
+  bool isEmitSummariesEnabled() const {
+    return EmitSummaries != EmitSummariesNone;
+  }
+  bool isEmitSummariesObj() const { return EmitSummaries == EmitSummariesObj; }
 
   bool embedBitcodeEnabled() const { return BitcodeEmbed != EmbedNone; }
   bool embedBitcodeInObject() const { return (BitcodeEmbed == EmbedBitcode); }
